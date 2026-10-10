@@ -1,0 +1,1041 @@
+{
+ "source": "https://questlog.gg/aion-2/en/db/pets",
+ "fetched": "2026-10-10",
+ "pets": [
+  {
+   "id": 1001,
+   "name": "Black Dragon",
+   "genus": "special"
+  },
+  {
+   "id": 1002,
+   "name": "Krall Laborer",
+   "genus": "cogni"
+  },
+  {
+   "id": 1003,
+   "name": "Forest Specter",
+   "genus": "natura"
+  },
+  {
+   "id": 1004,
+   "name": "Fossa",
+   "genus": "fera"
+  },
+  {
+   "id": 1005,
+   "name": "Klaw",
+   "genus": "cogni"
+  },
+  {
+   "id": 1006,
+   "name": "Sparkie",
+   "genus": "fera"
+  },
+  {
+   "id": 1007,
+   "name": "Potcrab",
+   "genus": "fera"
+  },
+  {
+   "id": 1008,
+   "name": "Baby Odyle Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1009,
+   "name": "Kernon",
+   "genus": "fera"
+  },
+  {
+   "id": 1010,
+   "name": "Manduri Fighter",
+   "genus": "cogni"
+  },
+  {
+   "id": 1011,
+   "name": "Skyray",
+   "genus": "fera"
+  },
+  {
+   "id": 1012,
+   "name": "Fungie",
+   "genus": "natura"
+  },
+  {
+   "id": 1013,
+   "name": "Swarm",
+   "genus": "varian"
+  },
+  {
+   "id": 1014,
+   "name": "Drakan Guard Dog",
+   "genus": "fera"
+  },
+  {
+   "id": 1015,
+   "name": "Kailin",
+   "genus": "fera"
+  },
+  {
+   "id": 1016,
+   "name": "Slink",
+   "genus": "fera"
+  },
+  {
+   "id": 1017,
+   "name": "Krall Warshaman",
+   "genus": "cogni"
+  },
+  {
+   "id": 1018,
+   "name": "Varg Berserker",
+   "genus": "cogni"
+  },
+  {
+   "id": 1021,
+   "name": "Aberrant Odyle Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1022,
+   "name": "Crasaur",
+   "genus": "fera"
+  },
+  {
+   "id": 1025,
+   "name": "Mutated Aberrant Odyle Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1026,
+   "name": "Krall Warrior",
+   "genus": "cogni"
+  },
+  {
+   "id": 1027,
+   "name": "Withered Agrint",
+   "genus": "natura"
+  },
+  {
+   "id": 1028,
+   "name": "Krao Mutant",
+   "genus": "varian"
+  },
+  {
+   "id": 1029,
+   "name": "Klaw Scout",
+   "genus": "cogni"
+  },
+  {
+   "id": 1030,
+   "name": "Nagarant Guardian Warrior",
+   "genus": "cogni"
+  },
+  {
+   "id": 1031,
+   "name": "Konutin Worker",
+   "genus": "natura"
+  },
+  {
+   "id": 1032,
+   "name": "Elite Keneire",
+   "genus": "fera"
+  },
+  {
+   "id": 1033,
+   "name": "Elite Manduri Fighter",
+   "genus": "cogni"
+  },
+  {
+   "id": 1034,
+   "name": "Giant Sparkie",
+   "genus": "fera"
+  },
+  {
+   "id": 1035,
+   "name": "Skama",
+   "genus": "fera"
+  },
+  {
+   "id": 1036,
+   "name": "Lupyllini",
+   "genus": "fera"
+  },
+  {
+   "id": 1037,
+   "name": "Male Crestlich",
+   "genus": "fera"
+  },
+  {
+   "id": 1038,
+   "name": "Airon",
+   "genus": "fera"
+  },
+  {
+   "id": 1039,
+   "name": "Crestlich",
+   "genus": "fera"
+  },
+  {
+   "id": 1040,
+   "name": "Aullaeu Shaman",
+   "genus": "cogni"
+  },
+  {
+   "id": 1041,
+   "name": "Cave Bat",
+   "genus": "fera"
+  },
+  {
+   "id": 1042,
+   "name": "Ursus",
+   "genus": "fera"
+  },
+  {
+   "id": 1043,
+   "name": "Elite Ursus",
+   "genus": "fera"
+  },
+  {
+   "id": 1044,
+   "name": "Aultross's Doppelganger",
+   "genus": "cogni"
+  },
+  {
+   "id": 1045,
+   "name": "Sylphen",
+   "genus": "fera"
+  },
+  {
+   "id": 1046,
+   "name": "Armadon",
+   "genus": "fera"
+  },
+  {
+   "id": 1047,
+   "name": "Aberrant Armadon",
+   "genus": "fera"
+  },
+  {
+   "id": 1048,
+   "name": "Forest Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1049,
+   "name": "Mutated Forest Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1050,
+   "name": "Gravi",
+   "genus": "natura"
+  },
+  {
+   "id": 1051,
+   "name": "Magic Gravi",
+   "genus": "natura"
+  },
+  {
+   "id": 1052,
+   "name": "Large Leaf Gravi",
+   "genus": "natura"
+  },
+  {
+   "id": 1053,
+   "name": "Aberrant Potcrab",
+   "genus": "fera"
+  },
+  {
+   "id": 1054,
+   "name": "Mumu Warrior",
+   "genus": "cogni"
+  },
+  {
+   "id": 1055,
+   "name": "Grave Rat",
+   "genus": "fera"
+  },
+  {
+   "id": 1056,
+   "name": "Drakan Probe",
+   "genus": "varian"
+  },
+  {
+   "id": 1057,
+   "name": "Coradon",
+   "genus": "fera"
+  },
+  {
+   "id": 1058,
+   "name": "Black Smoke Murute",
+   "genus": "natura"
+  },
+  {
+   "id": 1059,
+   "name": "Giant Bee",
+   "genus": "fera"
+  },
+  {
+   "id": 1060,
+   "name": "Starturtle",
+   "genus": "fera"
+  },
+  {
+   "id": 1061,
+   "name": "Slime",
+   "genus": "varian"
+  },
+  {
+   "id": 1062,
+   "name": "Contaminated Slime",
+   "genus": "varian"
+  },
+  {
+   "id": 1063,
+   "name": "Vigilant Oculazen",
+   "genus": "varian"
+  },
+  {
+   "id": 1064,
+   "name": "Oculazen",
+   "genus": "varian"
+  },
+  {
+   "id": 1065,
+   "name": "Biruta",
+   "genus": "cogni"
+  },
+  {
+   "id": 1066,
+   "name": "Papis",
+   "genus": "fera"
+  },
+  {
+   "id": 1067,
+   "name": "Scorpion",
+   "genus": "fera"
+  },
+  {
+   "id": 1068,
+   "name": "Krao Test Subject",
+   "genus": "varian"
+  },
+  {
+   "id": 1069,
+   "name": "Stone Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1071,
+   "name": "Cadaver Insectoid",
+   "genus": "fera"
+  },
+  {
+   "id": 1072,
+   "name": "Tog",
+   "genus": "fera"
+  },
+  {
+   "id": 1073,
+   "name": "Nepenthes",
+   "genus": "natura"
+  },
+  {
+   "id": 1074,
+   "name": "Kuru Worker",
+   "genus": "cogni"
+  },
+  {
+   "id": 1075,
+   "name": "Kuru Tinkerer",
+   "genus": "cogni"
+  },
+  {
+   "id": 1077,
+   "name": "Harcon",
+   "genus": "varian"
+  },
+  {
+   "id": 1078,
+   "name": "Urugugu Brawler",
+   "genus": "cogni"
+  },
+  {
+   "id": 1079,
+   "name": "Ultimate Wind Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1080,
+   "name": "Sentinel K'nash",
+   "genus": "cogni"
+  },
+  {
+   "id": 1081,
+   "name": "Dionae",
+   "genus": "natura"
+  },
+  {
+   "id": 1082,
+   "name": "Ultimate Fire Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1083,
+   "name": "Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1084,
+   "name": "Kalgolem",
+   "genus": "varian"
+  },
+  {
+   "id": 1086,
+   "name": "Fungen",
+   "genus": "natura"
+  },
+  {
+   "id": 1087,
+   "name": "Pino",
+   "genus": "varian"
+  },
+  {
+   "id": 1088,
+   "name": "Pino Worker",
+   "genus": "varian"
+  },
+  {
+   "id": 1089,
+   "name": "Aberrant Skama",
+   "genus": "fera"
+  },
+  {
+   "id": 1090,
+   "name": "Ultimate Water Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1091,
+   "name": "Red Spark Ignus",
+   "genus": "natura"
+  },
+  {
+   "id": 1092,
+   "name": "Lesser Wind Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1093,
+   "name": "Phantasmal Lakshmi",
+   "genus": "cogni"
+  },
+  {
+   "id": 1094,
+   "name": "Intermediate Wind Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1095,
+   "name": "Superior Wind Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1096,
+   "name": "Superior Fire Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1097,
+   "name": "Karnif",
+   "genus": "fera"
+  },
+  {
+   "id": 1098,
+   "name": "Modified Karnif",
+   "genus": "fera"
+  },
+  {
+   "id": 1099,
+   "name": "Elite Karnif",
+   "genus": "fera"
+  },
+  {
+   "id": 1100,
+   "name": "Ultimate Earth Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1101,
+   "name": "Forest Guardian",
+   "genus": "natura"
+  },
+  {
+   "id": 1102,
+   "name": "Dried Up Forest Guardian",
+   "genus": "natura"
+  },
+  {
+   "id": 1103,
+   "name": "Pretor Veil Administrator",
+   "genus": "cogni"
+  },
+  {
+   "id": 1104,
+   "name": "Manduri Trebuchet Worker",
+   "genus": "cogni"
+  },
+  {
+   "id": 1105,
+   "name": "Biruta Herbalist",
+   "genus": "cogni"
+  },
+  {
+   "id": 1106,
+   "name": "Tayga",
+   "genus": "fera"
+  },
+  {
+   "id": 1107,
+   "name": "Krao Seal Guardian",
+   "genus": "varian"
+  },
+  {
+   "id": 1108,
+   "name": "Enhanced Krall Combatant",
+   "genus": "cogni"
+  },
+  {
+   "id": 1109,
+   "name": "Enhanced Krall Sentry",
+   "genus": "cogni"
+  },
+  {
+   "id": 1110,
+   "name": "Blue Kalgolem",
+   "genus": "varian"
+  },
+  {
+   "id": 1111,
+   "name": "Swift Lugi",
+   "genus": "special"
+  },
+  {
+   "id": 1112,
+   "name": "Wandering Merchant Lugi",
+   "genus": "special"
+  },
+  {
+   "id": 1114,
+   "name": "Ashen Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1115,
+   "name": "Kuru Overseer",
+   "genus": "cogni"
+  },
+  {
+   "id": 1116,
+   "name": "Withered Branch Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1117,
+   "name": "Unstable Spider",
+   "genus": "fera"
+  },
+  {
+   "id": 1118,
+   "name": "Aberrant Bee",
+   "genus": "fera"
+  },
+  {
+   "id": 1119,
+   "name": "Aberrant Coradon",
+   "genus": "fera"
+  },
+  {
+   "id": 1120,
+   "name": "Young Kailin",
+   "genus": "fera"
+  },
+  {
+   "id": 1121,
+   "name": "Young Slink",
+   "genus": "fera"
+  },
+  {
+   "id": 1122,
+   "name": "Young Tog",
+   "genus": "fera"
+  },
+  {
+   "id": 1123,
+   "name": "Young Ursus",
+   "genus": "fera"
+  },
+  {
+   "id": 1124,
+   "name": "Zaif",
+   "genus": "fera"
+  },
+  {
+   "id": 1125,
+   "name": "Aberrant Zaif",
+   "genus": "fera"
+  },
+  {
+   "id": 1126,
+   "name": "Aberrant Tog",
+   "genus": "fera"
+  },
+  {
+   "id": 1127,
+   "name": "Odyle Stone Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1128,
+   "name": "Drana Slime",
+   "genus": "varian"
+  },
+  {
+   "id": 1129,
+   "name": "Drana Swarm",
+   "genus": "varian"
+  },
+  {
+   "id": 1130,
+   "name": "Mutated Cadaver Insectoid",
+   "genus": "fera"
+  },
+  {
+   "id": 1131,
+   "name": "Drana Spore",
+   "genus": "natura"
+  },
+  {
+   "id": 1132,
+   "name": "Ashen Lupyllini",
+   "genus": "fera"
+  },
+  {
+   "id": 1133,
+   "name": "Forest Dionae",
+   "genus": "natura"
+  },
+  {
+   "id": 1134,
+   "name": "Eternal Coradon",
+   "genus": "fera"
+  },
+  {
+   "id": 1135,
+   "name": "Ashen Dionae",
+   "genus": "natura"
+  },
+  {
+   "id": 1136,
+   "name": "Rafflesia",
+   "genus": "natura"
+  },
+  {
+   "id": 1137,
+   "name": "Mumu Worker",
+   "genus": "cogni"
+  },
+  {
+   "id": 1138,
+   "name": "Mumu Overseer",
+   "genus": "cogni"
+  },
+  {
+   "id": 1139,
+   "name": "Swamp Monster",
+   "genus": "varian"
+  },
+  {
+   "id": 1140,
+   "name": "Forest Monster",
+   "genus": "varian"
+  },
+  {
+   "id": 1141,
+   "name": "Marsh Targon",
+   "genus": "varian"
+  },
+  {
+   "id": 1142,
+   "name": "Distorted Mutant",
+   "genus": "varian"
+  },
+  {
+   "id": 1143,
+   "name": "Mutated Ursus",
+   "genus": "fera"
+  },
+  {
+   "id": 1144,
+   "name": "Mutated Forest Guardian",
+   "genus": "natura"
+  },
+  {
+   "id": 1145,
+   "name": "Mutated Insectoid Valka",
+   "genus": "fera"
+  },
+  {
+   "id": 1146,
+   "name": "Gatekeeper Pinopi",
+   "genus": "varian"
+  },
+  {
+   "id": 1147,
+   "name": "Dratona",
+   "genus": "cogni"
+  },
+  {
+   "id": 1148,
+   "name": "Drakana Kalgolem",
+   "genus": "varian"
+  },
+  {
+   "id": 1153,
+   "name": "Drana Mutant Brute",
+   "genus": "varian"
+  },
+  {
+   "id": 1154,
+   "name": "Faded Mutant Brute",
+   "genus": "varian"
+  },
+  {
+   "id": 1155,
+   "name": "Superior Water Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1156,
+   "name": "Elite Klaw",
+   "genus": "cogni"
+  },
+  {
+   "id": 1157,
+   "name": "Cadaver Cleaner",
+   "genus": "varian"
+  },
+  {
+   "id": 1158,
+   "name": "Venomous Insect Sram",
+   "genus": "fera"
+  },
+  {
+   "id": 1159,
+   "name": "Parasite Swarm",
+   "genus": "varian"
+  },
+  {
+   "id": 1160,
+   "name": "Drana Contaminant",
+   "genus": "varian"
+  },
+  {
+   "id": 1161,
+   "name": "Faded Floater",
+   "genus": "varian"
+  },
+  {
+   "id": 1162,
+   "name": "Kerubar",
+   "genus": "cogni"
+  },
+  {
+   "id": 1163,
+   "name": "Basilisk",
+   "genus": "fera"
+  },
+  {
+   "id": 1164,
+   "name": "Lesser Earth Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1165,
+   "name": "Intermediate Earth Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1166,
+   "name": "Superior Earth Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1167,
+   "name": "Flame Stone Guardian Statue",
+   "genus": "varian"
+  },
+  {
+   "id": 1168,
+   "name": "Lesser Water Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1169,
+   "name": "Intermediate Water Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1170,
+   "name": "Kerubian",
+   "genus": "cogni"
+  },
+  {
+   "id": 1171,
+   "name": "Kerubiel",
+   "genus": "cogni"
+  },
+  {
+   "id": 1172,
+   "name": "Duduka Worker",
+   "genus": "varian"
+  },
+  {
+   "id": 1173,
+   "name": "Duduka Trebuchet Worker",
+   "genus": "varian"
+  },
+  {
+   "id": 1174,
+   "name": "Drana Predator",
+   "genus": "varian"
+  },
+  {
+   "id": 1175,
+   "name": "Faded Predator",
+   "genus": "varian"
+  },
+  {
+   "id": 1176,
+   "name": "Mudthorn",
+   "genus": "varian"
+  },
+  {
+   "id": 1177,
+   "name": "Ancient Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1178,
+   "name": "Spirit King's Bodyguard Warrior",
+   "genus": "natura"
+  },
+  {
+   "id": 1179,
+   "name": "Drana Mutant",
+   "genus": "varian"
+  },
+  {
+   "id": 1180,
+   "name": "Faded Mutant",
+   "genus": "varian"
+  },
+  {
+   "id": 1181,
+   "name": "Brax",
+   "genus": "fera"
+  },
+  {
+   "id": 1182,
+   "name": "Elite Soulless Corpse Gnat",
+   "genus": "varian"
+  },
+  {
+   "id": 1183,
+   "name": "Soulless Corpse Gnat",
+   "genus": "varian"
+  },
+  {
+   "id": 1184,
+   "name": "Drakan Watcher",
+   "genus": "cogni"
+  },
+  {
+   "id": 1185,
+   "name": "Dratona Tinkerer",
+   "genus": "cogni"
+  },
+  {
+   "id": 1186,
+   "name": "Poison Blood",
+   "genus": "varian"
+  },
+  {
+   "id": 1187,
+   "name": "Intermediate Fire Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1188,
+   "name": "Vivel",
+   "genus": "fera"
+  },
+  {
+   "id": 1189,
+   "name": "Tamed Zaif",
+   "genus": "fera"
+  },
+  {
+   "id": 1190,
+   "name": "Elite Poisonous Spore Fungen",
+   "genus": "natura"
+  },
+  {
+   "id": 1191,
+   "name": "Furious Feruk",
+   "genus": "cogni"
+  },
+  {
+   "id": 1192,
+   "name": "Silver Blade Rotan",
+   "genus": "varian"
+  },
+  {
+   "id": 1193,
+   "name": "Addicted Shulak Cart Worker",
+   "genus": "cogni"
+  },
+  {
+   "id": 1194,
+   "name": "Guardite",
+   "genus": "varian"
+  },
+  {
+   "id": 1195,
+   "name": "Dracuni Herbalist",
+   "genus": "cogni"
+  },
+  {
+   "id": 1196,
+   "name": "Elite Dratona",
+   "genus": "cogni"
+  },
+  {
+   "id": 1197,
+   "name": "Watcher Guardite",
+   "genus": "varian"
+  },
+  {
+   "id": 1198,
+   "name": "Ashen Basilisk",
+   "genus": "fera"
+  },
+  {
+   "id": 1199,
+   "name": "Flame Barghest",
+   "genus": "fera"
+  },
+  {
+   "id": 1200,
+   "name": "Naga Elite Priest",
+   "genus": "cogni"
+  },
+  {
+   "id": 1201,
+   "name": "Modified Lupyllini",
+   "genus": "cogni"
+  },
+  {
+   "id": 1202,
+   "name": "Decomposed Lupyllini",
+   "genus": "cogni"
+  },
+  {
+   "id": 1203,
+   "name": "Tamed Karnif",
+   "genus": "fera"
+  },
+  {
+   "id": 1204,
+   "name": "Pagati",
+   "genus": "special"
+  },
+  {
+   "id": 1206,
+   "name": "Elite Guardite",
+   "genus": "varian"
+  },
+  {
+   "id": 1207,
+   "name": "Agrint",
+   "genus": "natura"
+  },
+  {
+   "id": 1208,
+   "name": "Ashen Agrint",
+   "genus": "natura"
+  },
+  {
+   "id": 1209,
+   "name": "Thin Agrint",
+   "genus": "natura"
+  },
+  {
+   "id": 1210,
+   "name": "Dry Leaf Agrint",
+   "genus": "natura"
+  },
+  {
+   "id": 1213,
+   "name": "Lesser Fire Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1214,
+   "name": "Black Spirit",
+   "genus": "natura"
+  },
+  {
+   "id": 1215,
+   "name": "Predator Saraswati",
+   "genus": "cogni"
+  },
+  {
+   "id": 1216,
+   "name": "Dark Spirit",
+   "genus": "varian"
+  },
+  {
+   "id": 1217,
+   "name": "Congealed Drana",
+   "genus": "varian"
+  },
+  {
+   "id": 1218,
+   "name": "Faded Drana",
+   "genus": "varian"
+  },
+  {
+   "id": 1219,
+   "name": "Zelophi",
+   "genus": "natura"
+  },
+  {
+   "id": 1240,
+   "name": "White Bunny",
+   "genus": "special"
+  },
+  {
+   "id": 1278,
+   "name": "Chonky Hamster",
+   "genus": "special"
+  },
+  {
+   "id": 1299,
+   "name": "Two",
+   "genus": "special"
+  }
+ ]
+}

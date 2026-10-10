@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+*.tmp
+
+# Your own data: the tracked counts, and raw captures (they hold your character, account and
+# server ids and other players' names).
+collection.json
+captures/
+*.pcap
+*.pcapng
+
+# Packaging output
+build/

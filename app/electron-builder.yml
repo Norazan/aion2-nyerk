@@ -1,0 +1,37 @@
+# Windows installer: per-user NSIS (no admin rights), like marnis-app's.
+#
+#   npm run dist      -> dist/Aion 2 Drop Tracker Setup <version>.exe
+#
+# The tracker helper is the PyInstaller build in ../build/sidecar/aion2-tracker (npm run dist builds
+# it first: scripts/build-sidecar.mjs). Npcap is not bundled: its licence does not allow it, and
+# the app tells the user to install it.
+appId: com.xcrov.aion2-drop-tracker
+productName: Aion 2 Drop Tracker
+executableName: Aion2DropTracker
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: ../build/sidecar/aion2-tracker
+    to: sidecar
+    filter: ['**/*']
+asar: true
+electronLanguages: [en-US]
+win:
+  target: [nsis]
+  icon: build/icon.ico
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  shortcutName: Aion 2 Drop Tracker
+  artifactName: Aion2DropTracker-Setup-${version}.${ext}
+# The update feed. electron-builder bakes this into the build as app-update.yml; `npm run dist`
+# publishes nothing itself (--publish never).
+publish:
+  provider: generic
+  url: https://marnis.app/updates/aion2/
+  channel: latest

@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * The palette: Radix Colors' 12-step dark scales. The Tailwind theme (tailwind.preset.cjs) maps
+ * the semantic names onto these steps.
+ */
+:root {
+  --violet-1: #0e101d;
+  --violet-2: #141528;
+  --violet-3: #1f1f4f;
+  --violet-4: #282471;
+  --violet-5: #312d81;
+  --violet-6: #3a3990;
+  --violet-7: #4645a5;
+  --violet-8: #5453c5;
+  --violet-9: #4f3cdd;
+  --violet-10: #4427cb;
+  --violet-11: #a3acff;
+  --violet-12: #dae0ff;
+
+  --violet-a1: #0000fd0d;
+  --violet-a2: #303afc19;
+  --violet-a3: #4646fd43;
+  --violet-a4: #4a41ff67;
+  --violet-a5: #554dff78;
+  --violet-a6: #5d5cfe89;
+  --violet-a7: #6665ff9f;
+  --violet-a8: #6a69ffc1;
+  --violet-a9: #5a44ffdb;
+  --violet-a10: #522dfec8;
+  --violet-a11: #a3acff;
+  --violet-a12: #dae0ff;
+
+  --violet-contrast: #fff;
+  --violet-surface: #17193f80;
+  --violet-indicator: #4f3cdd;
+  --violet-track: #4f3cdd;
+
+  --gray-1: #0f101a;
+  --gray-2: #151621;
+  --gray-3: #1e1f2c;
+  --gray-4: #252735;
+  --gray-5: #2d2f3e;
+  --gray-6: #373948;
+  --gray-7: #474959;
+  --gray-8: #606272;
+  --gray-9: #6b6d7e;
+  --gray-10: #787b8a;
+  --gray-11: #b5b7c0;
+  --gray-12: #eaebef;
+}
+
+/* Inter (SIL Open Font License; fonts/inter-LICENSE.txt), the variable Latin cut with optical size. */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url('./fonts/inter-latin-opsz.woff2') format('woff2-variations');
+}
+
+@layer base {
+  /* Every window here is transparent: the bubble is a circle, the panel a rounded card, the HUD
+     floats over the game. Without this they would paint an opaque rectangle. */
+  html,
+  body {
+    background: transparent !important;
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  html {
+    font-optical-sizing: auto;
+  }
+
+  body {
+    @apply text-default antialiased;
+    user-select: none;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--gray-7);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--violet-8);
+    outline-offset: 1px;
+  }
+}

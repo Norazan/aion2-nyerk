@@ -1,0 +1,19 @@
+[project]
+name = "aion2-drop-tracker"
+version = "0.1.0"
+description = "Aion 2 kill and pet-soul tracker that reads the game's network traffic through Npcap"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0-only"}
+dependencies = [
+  "scapy==2.8.0",
+  "lz4==4.4.5",
+]
+
+[tool.setuptools]
+packages = ["aion2_tracker"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

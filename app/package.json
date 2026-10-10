@@ -1,0 +1,49 @@
+{
+  "name": "aion2-drop-tracker",
+  "productName": "Aion 2 Drop Tracker",
+  "version": "0.1.8",
+  "description": "In-game overlay for the Aion 2 drop tracker: pet souls and collection progress.",
+  "private": true,
+  "main": "./out/main/index.js",
+  "author": "xcrov",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "icon": "node scripts/make-icon.mjs",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "dist": "npm run build:sidecar && npm run build && electron-builder --win --publish never",
+    "pack": "npm run build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "autoprefixer": "^10.6.1",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "pinia": "^4.0.3",
+    "postcss": "^8.5.29",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vue": "^3.5.43",
+    "vue-tsc": "^3.3.12"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron@44.7.0": true,
+    "electron-winstaller": false
+  }
+}
