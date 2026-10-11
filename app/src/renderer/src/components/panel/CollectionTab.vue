@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Every pet: search, sort, filter. Click a name or a soul count to correct it; the pin puts a pet
 // on the HUD (in pinned mode).
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, toRefs } from 'vue'
 import GenusPill, { GENUS_PILL } from '@/components/GenusPill.vue'
 import LevelBadge from '@/components/LevelBadge.vue'
 import LevelBar from '@/components/LevelBar.vue'
@@ -13,10 +13,8 @@ import { useApp } from '@/stores/app.ts'
 import { blankPet, MAX_LEVEL, nextLevelSouls, type Pet } from '@shared/tracker.ts'
 
 const store = useApp()
-const query = ref('')
-const sort = ref<'souls' | 'name' | 'level' | 'recent'>('souls')
-const filter = ref<'all' | 'nearby' | 'pinned' | 'unfinished' | 'session'>('all')
-const genus = ref<Genus | null>(null)
+// In the store, so they survive the tab being rebuilt (after a pet's map closes).
+const { query, sort, filter, genus } = toRefs(store.collectionView)
 
 const FILTERS = [
   { id: 'all', label: 'All' },

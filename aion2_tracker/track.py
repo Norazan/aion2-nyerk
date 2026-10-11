@@ -193,6 +193,11 @@ class Tracker:
             self.world = self.position = None
             self.nearby_dirty = True
 
+    def _maxed(self, pid: int | None) -> bool:
+        """A pet at the cap, which gets crystals instead of souls."""
+        pet = self.data["pets"].get(str(pid)) if pid is not None else None
+        return bool(pet) and (pet.get("level") or 0) >= MAX_LEVEL
+
     def self_id(self) -> int | None:
         best = self.self_votes.most_common(1)
         return best[0][0] if best else None
@@ -271,11 +276,15 @@ class Tracker:
                        "levelUp": levelled})
 
     def _crystal(self, ts: float, crystal: P.Crystal) -> None:
-        """Genus crystals from a monster whose pet is maxed. The pet is the one the monster killed
-        just before drops: yours if it is known which player you are, else the nearest kill."""
+        """Genus crystals from a monster whose pet is maxed. The pet is the one a monster killed
+        just before drops, among those whose pet is at Lv3 (as the login sync said): yours if it
+        is known which player you are, else the nearest such kill. A kill of a monster whose pet
+        is still collecting souls is never it: two monsters dying together (2026-10-10, a Foul
+        Skama and a Marsh Targon) had put the Skama's crystal on the Targon."""
         credited = [(ts - t, mob, owner) for t, mob, owner in self.credits if 0 <= ts - t <= NAME_WINDOW_S]
+        maxed = [c for c in credited if self._maxed(self.droppers.get(self.mob_code.get(c[1])))]
         me = self.self_id()
-        mine = [c for c in credited if c[2] == me] or credited
+        mine = [c for c in maxed if c[2] == me] or maxed
         code = self.mob_code.get(min(mine)[1]) if mine else None
         pid = self.droppers.get(code) if code else None
         event = {"type": "crystal", "ts": ts, "amount": crystal.amount, "genus": P.CRYSTAL_GENUS.get(crystal.genus),
@@ -285,11 +294,6 @@ class Tracker:
             pet["crystals"] = pet.get("crystals", 0) + crystal.amount
             if name := self.npcs.get(str(code), {}).get("name"):
                 pet["votes"][name] = pet["votes"].get(name, 0) + 1
-            # Only a pet at the cap gives crystals: whatever level was saved, it is there now.
-            if (pet.get("level") or 0) < MAX_LEVEL or pet.get("levelEstimated"):
-                pet["level"] = MAX_LEVEL
-                pet["souls"] = 0
-                pet.pop("levelEstimated", None)
             self._save()
             event["pet"] = self.view(pid)
         self.on_event(event)

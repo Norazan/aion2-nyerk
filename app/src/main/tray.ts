@@ -1,6 +1,7 @@
 /** The tray icon: left-click opens the panel, the menu holds everything else. Quit is the only exit. */
 import { app, Menu, nativeImage, Tray } from 'electron'
 import { join } from 'node:path'
+import { DISPLAY_NAME } from '../shared/app.ts'
 import { settings } from './settings.ts'
 import { tracker } from './tracker.ts'
 import { updates } from './update.ts'
@@ -39,7 +40,7 @@ export function createTray(): Tray {
   let image = nativeImage.createFromPath(join(__dirname, '../renderer/icon.png'))
   image = image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 16, height: 16, quality: 'best' })
   tray = new Tray(image)
-  tray.setToolTip(app.getName())
+  tray.setToolTip(DISPLAY_NAME)
   tray.on('click', () => togglePanel())
   // Rebuilt on open so the checkbox and the HUD item reflect the current state.
   tray.on('right-click', () => tray?.popUpContextMenu(menu()))

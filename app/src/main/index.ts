@@ -1,19 +1,25 @@
 /**
- * Aion 2 Drop Tracker: a tray app with a floating bubble, a panel and an in-game HUD, fed by the
+ * Aion2 Pet Tracker: a tray app with a floating bubble, a panel and an in-game HUD, fed by the
  * Python tracker running as a child process.
  */
 import { app } from 'electron'
+import { DISPLAY_NAME } from '../shared/app.ts'
 import { broadcast } from './broadcast.ts'
 import { startHealthWatch } from './health.ts'
 import { registerIpc } from './ipc.ts'
 import { settings } from './settings.ts'
 import { startIdleWatch } from './idle.ts'
-import { killTrackerNow, stopTracker, tracker } from './tracker.ts'
+import { join } from 'node:path'
+import { moveDataFolder, OLD_NAME } from './migrate.ts'
+import { killTrackerNow, log, stopTracker, tracker } from './tracker.ts'
 import { createTray, setTrayTooltip } from './tray.ts'
 import { startUpdateChecks } from './update.ts'
 import { applyWindowSettings, markQuitting, refreshHud, showPanel } from './windows.ts'
 
-app.setName('Aion 2 Drop Tracker')
+// The name is also the data folder's (%APPDATA%\<name>): the old one is moved across once.
+app.setName(DISPLAY_NAME)
+const migrated = moveDataFolder(join(app.getPath('appData'), OLD_NAME), app.getPath('userData'))
+// Kept from the first release: Windows ties the shortcut and the updater to this id.
 app.setAppUserModelId('com.xcrov.aion2-drop-tracker')
 
 // One instance: a second launch opens the first one's panel instead.
@@ -23,6 +29,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => showPanel())
 
   void app.whenReady().then(() => {
+    if (migrated !== 'nothing to move') log(`data folder: ${migrated}`)
     startHealthWatch()
     registerIpc()
     createTray()
@@ -42,7 +49,7 @@ if (!app.requestSingleInstanceLock()) {
         error: 'error',
         exited: 'restarting',
       }[status.state]
-      setTrayTooltip(`${app.getName()}: ${what}`)
+      setTrayTooltip(`${DISPLAY_NAME}: ${what}`)
     })
 
     // The bubble, the HUD and the tracker, once it is known whether the game is running.

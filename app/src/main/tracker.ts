@@ -16,6 +16,7 @@ import { app } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { DISPLAY_NAME } from '../shared/app.ts'
 import { broadcast } from './broadcast.ts'
 import { settings } from './settings.ts'
 import { GAME_ACTIVE_S, NO_NEARBY, type Nearby, type Pet, type SoulToast, type TrackerStatus } from '../shared/tracker.ts'
@@ -56,7 +57,7 @@ export function log(line: string): void {
   try {
     if (!logReady) {
       mkdirSync(dirname(logPath()), { recursive: true })
-      writeFileSync(logPath(), `Aion 2 Drop Tracker ${app.getVersion()} (${app.isPackaged ? 'installed' : 'development'})\n`)
+      writeFileSync(logPath(), `${DISPLAY_NAME} ${app.getVersion()} (${app.isPackaged ? 'installed' : 'development'})\n`)
       logReady = true
     }
     appendFileSync(logPath(), `${new Date().toISOString()} ${line}\n`)

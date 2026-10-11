@@ -161,7 +161,7 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
           </button>
         </div>
         <label class="block">
-          <span class="text-darker">Python (empty = the repo's .venv)</span>
+          <span class="text-darker">Python</span>
           <input
             v-model="python"
             class="mt-1 h-7 w-full rounded-md border border-light bg-default px-2 text-xs"

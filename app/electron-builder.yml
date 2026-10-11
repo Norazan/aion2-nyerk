@@ -1,12 +1,14 @@
 # Windows installer: per-user NSIS (no admin rights), like marnis-app's.
 #
-#   npm run dist      -> dist/Aion 2 Drop Tracker Setup <version>.exe
+#   npm run dist      -> dist/Aion2PetTracker-Setup-<version>.exe
 #
 # The tracker helper is the PyInstaller build in ../build/sidecar/aion2-tracker (npm run dist builds
 # it first: scripts/build-sidecar.mjs). Npcap is not bundled: its licence does not allow it, and
 # the app tells the user to install it.
+# appId, executableName and the package name (the install folder) are kept from the first release:
+# the updater and the installed copy are found by them. The product name was renamed in 0.1.11.
 appId: com.xcrov.aion2-drop-tracker
-productName: Aion 2 Drop Tracker
+productName: Aion2 Pet Tracker
 executableName: Aion2DropTracker
 directories:
   output: dist
@@ -27,8 +29,8 @@ nsis:
   oneClick: true
   perMachine: false
   deleteAppDataOnUninstall: false
-  shortcutName: Aion 2 Drop Tracker
-  artifactName: Aion2DropTracker-Setup-${version}.${ext}
+  shortcutName: Aion2 Pet Tracker
+  artifactName: Aion2PetTracker-Setup-${version}.${ext}
 # The update feed. electron-builder bakes this into the build as app-update.yml; `npm run dist`
 # publishes nothing itself (--publish never).
 publish:

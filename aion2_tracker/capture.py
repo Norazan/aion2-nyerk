@@ -30,23 +30,23 @@ class Reassembler:
     def feed(self, seq: int, data: bytes) -> list[bytes]:
         if self.next_seq is None:
             self.next_seq = seq
-        if seq != self.next_seq:
-            delta = (seq - self.next_seq) & 0xFFFFFFFF
-            if delta < 0x80000000:  # ahead: hold until the gap fills (or give up past 64 KB)
-                self.pending[seq] = data
-                if sum(map(len, self.pending.values())) > 65536:
-                    self._resync()
-                else:
-                    return []
-            else:  # behind: a retransmission, keep only bytes we have not seen
-                skip = (self.next_seq - seq) & 0xFFFFFFFF
-                if skip >= len(data):
-                    return []
-                data, seq = data[skip:], self.next_seq
-        if seq == self.next_seq:
+        delta = (seq - self.next_seq) & 0xFFFFFFFF
+        if delta == 0:
             self._append(data)
-            while self.next_seq in self.pending:
-                self._append(self.pending.pop(self.next_seq))
+        elif delta < 0x80000000:  # ahead: hold until the gap fills (or give up past 64 KB)
+            self.pending[seq] = data
+            if sum(map(len, self.pending.values())) <= 65536:
+                return []
+            self._resync()
+        else:  # behind: a retransmission, keep only bytes we have not seen
+            skip = (self.next_seq - seq) & 0xFFFFFFFF
+            if skip >= len(data):
+                return []
+            self._append(data[skip:])
+        # What was held and now lines up: after the gap filled, or after giving up on it. (Only
+        # draining on an exact arrival stalled the stream for good after a resync, whose first
+        # held segment had already arrived.)
+        self._drain()
         packets, consumed = protocol.split(self.buf)
         self.buf = self.buf[consumed:]
         if len(self.buf) > 2 * 1024 * 1024:
@@ -56,6 +56,19 @@ class Reassembler:
     def _append(self, data: bytes) -> None:
         self.buf += data
         self.next_seq = (self.next_seq + len(data)) & 0xFFFFFFFF
+
+    def _drain(self) -> None:
+        while True:
+            # Held segments now (partly) behind the stream: keep only their new bytes, or drop
+            # them, so none is held for ever.
+            for s in [s for s in self.pending if (s - self.next_seq) & 0xFFFFFFFF >= 0x80000000]:
+                data = self.pending.pop(s)
+                skip = (self.next_seq - s) & 0xFFFFFFFF
+                if skip < len(data) and len(data) - skip > len(self.pending.get(self.next_seq, b"")):
+                    self.pending[self.next_seq] = data[skip:]
+            if self.next_seq not in self.pending:
+                return
+            self._append(self.pending.pop(self.next_seq))
 
     def _resync(self) -> None:
         # Lost a segment for good: drop what is buffered and restart at the earliest held one.

@@ -3,11 +3,12 @@
  * this store (separate renderers); main broadcasts every change to all of them.
  */
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { SETTINGS_DEFAULTS, type SettingKey, type Settings } from '@shared/settings.ts'
 import { MAX_LEVEL, NO_NEARBY, type Nearby, type Pet, type SoulToast, type TrackerStatus } from '@shared/tracker.ts'
 import { initialUpdateStatus, type UpdateStatus } from '@shared/update.ts'
 import { bridge } from '@/lib/bridge.ts'
+import type { Genus } from '@/lib/petDb.ts'
 
 const TOAST_MS = 5000
 
@@ -21,6 +22,16 @@ export const useApp = defineStore('app', () => {
   const ready = ref(false)
   const nearby = ref<Nearby>(NO_NEARBY)
   const update = ref<UpdateStatus>(initialUpdateStatus(''))
+  /**
+   * The collection's search, sort and filter pills. Kept here, not in the tab: the tab is rebuilt
+   * after a pet's map closes, and the filters used to reset with it.
+   */
+  const collectionView = reactive({
+    query: '',
+    sort: 'souls' as 'souls' | 'name' | 'level' | 'recent',
+    filter: 'all' as 'all' | 'nearby' | 'pinned' | 'unfinished' | 'session',
+    genus: null as Genus | null,
+  })
   /** The pet whose drop locations the panel is showing, if any. */
   const openPetId = ref<number | null>(null)
 
@@ -127,7 +138,7 @@ export const useApp = defineStore('app', () => {
   }
 
   return {
-    settings, status, pets, toasts, fighting, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update,
+    settings, status, pets, toasts, fighting, collectionView, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update,
     init, set, setHud, togglePin, openPet, hiddenPet,
   }
 })

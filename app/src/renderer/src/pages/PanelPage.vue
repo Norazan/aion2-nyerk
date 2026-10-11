@@ -8,6 +8,7 @@ import SettingsTab from '@/components/panel/SettingsTab.vue'
 import StatusDot, { statusText } from '@/components/StatusDot.vue'
 import { bridge } from '@/lib/bridge.ts'
 import { useApp } from '@/stores/app.ts'
+import { DISPLAY_NAME } from '@shared/app.ts'
 
 const store = useApp()
 const TABS = [
@@ -33,7 +34,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <header class="flex items-center gap-2.5 border-b border-card px-3 py-2.5">
       <img src="/icon.png" alt="" class="size-7" draggable="false" />
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-semibold leading-tight">Aion 2 Drop Tracker</div>
+        <div class="text-sm font-semibold leading-tight">{{ DISPLAY_NAME }}</div>
         <div class="flex items-center gap-1.5 text-xs text-darker">
           <StatusDot :status="store.status" />
           <span class="truncate">{{ statusText(store.status) }}</span>

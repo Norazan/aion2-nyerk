@@ -1,4 +1,4 @@
-# Aion 2 Pet Tracker
+# Aion2 Pet Tracker
 
 A Windows overlay that counts your Aion 2 **Pet Collection** souls as they drop, so you don't have
 to keep opening the Pets menu.
@@ -23,7 +23,7 @@ or its servers, never reads or changes the game's memory, and sends no input.
 ## Install
 
 1. Install [Npcap](https://npcap.com) (the default options are fine).
-2. Download `Aion2DropTracker-Setup-<version>.exe` from the
+2. Download `Aion2PetTracker-Setup-<version>.exe` from the
    [latest release](../../releases/latest) and run it. It installs for your Windows account only.
    The installer is not code-signed, so Windows may show "Windows protected your PC": choose
    **More info → Run anyway**.
