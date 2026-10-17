@@ -23,6 +23,7 @@ to keep opening the Pets menu.
   game starts.
 - And whatever else I randomly find useful while I play Aion2. :D
 
+[Nyerk Discord](https://discord.gg/tjJkjDzbbU) - Timers and support.
 
 ![The collection panel and the in-game HUD](assets/screenshot.webp)
 
