@@ -16,6 +16,8 @@ let alerting: TimerAlert[] = []
 /** Alerts dismissed, as `${id}@${start}`: each start alerts once. */
 const done = new Set<string>()
 const key = (a: TimerAlert): string => `${a.id}@${a.at}`
+/** Alerts the app announced before an update restart: they show again without a second chime. */
+let announced = new Set<string>()
 
 function check(): void {
   const now = Date.now()
@@ -33,7 +35,7 @@ function check(): void {
   }
   const was = new Set(alerting.map(key))
   for (const a of next) {
-    if (was.has(key(a))) continue
+    if (was.has(key(a)) || announced.has(key(a))) continue
     log(`timer: ${a.id} at ${new Date(a.at).toISOString().slice(11, 16)} UTC`)
     broadcast('timers:alert', a)
   }
@@ -47,6 +49,13 @@ function check(): void {
 
 export const timers = {
   alerting: (): TimerAlert[] => alerting,
+  /** For an update restart: the alerts seen, so the new start does not chime them again. */
+  snapshot: (): { done: string[]; alerting: string[] } => ({ done: [...done], alerting: alerting.map(key) }),
+  /** After an update restart: alerts already announced stay quiet; dismissed ones stay dismissed. */
+  restore(seen: { done: string[]; alerting: string[] }): void {
+    for (const k of seen.done) done.add(k)
+    announced = new Set(seen.alerting)
+  },
   /** A click on the bubble: these alerts are seen. */
   dismiss(): void {
     if (!alerting.length) return

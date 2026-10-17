@@ -150,13 +150,6 @@ function commit(): void {
     void bridge().invoke('tracker:setName', e.id, e.value.trim())
   }
 }
-
-const syncedAgo = computed(() => {
-  const s = store.status?.synced
-  if (!s) return null
-  const min = Math.round((Date.now() - s.at) / 60000)
-  return min < 1 ? 'just now' : `${min} min ago`
-})
 </script>
 
 <template>
@@ -201,7 +194,6 @@ const syncedAgo = computed(() => {
         <div class="text-[11px] text-darker">at Lv{{ MAX_LEVEL }}</div>
       </div>
     </div>
-    <p v-if="syncedAgo" class="-mt-1 text-right text-[11px] text-darkest">synced from the server {{ syncedAgo }}</p>
 
     <div class="flex gap-2">
       <input
@@ -218,7 +210,7 @@ const syncedAgo = computed(() => {
         <option value="range">Range</option>
       </select>
     </div>
-    <!-- The filters, one segment per group: what to show, then genus, then continent. -->
+    <!-- The filters, one segment per group: what to show, then continent, then genus. -->
     <div class="divide-y divide-[color:var(--gray-4)] rounded-lg border border-card bg-card">
       <div class="flex items-start gap-2 px-2.5 py-2">
         <span class="w-16 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-wide text-darkest">Show</span>
@@ -238,25 +230,18 @@ const syncedAgo = computed(() => {
         </div>
       </div>
       <div class="flex items-start gap-2 px-2.5 py-2">
-        <span class="w-16 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-wide text-darkest">Genus</span>
+        <span class="w-16 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-wide text-darkest">Continent</span>
         <div class="flex flex-wrap gap-1.5">
           <button
-            v-for="g in GENERA"
-            :key="g.id"
             type="button"
             :class="[
               'rounded-full border px-2.5 py-0.5 text-xs transition',
-              genus === g.id ? GENUS_PILL[g.id] : 'border-light text-darker hover:text-default',
+              continent === null ? 'border-accent bg-accent-soft text-accent' : 'border-light text-darker hover:text-default',
             ]"
-            @click="genus = genus === g.id ? null : g.id"
+            @click="continent = null"
           >
-            {{ g.label }} <span class="tabular-nums opacity-60">{{ genusCounts.get(g.id) ?? 0 }}</span>
+            All
           </button>
-        </div>
-      </div>
-      <div class="flex items-start gap-2 px-2.5 py-2">
-        <span class="w-16 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-wide text-darkest">Continent</span>
-        <div class="flex flex-wrap gap-1.5">
           <button
             v-for="c in CONTINENTS"
             :key="c.id"
@@ -269,6 +254,33 @@ const syncedAgo = computed(() => {
             @click="continent = continent === c.id ? null : c.id"
           >
             {{ c.label }} <span class="tabular-nums opacity-60">{{ continentCounts.get(c.id) ?? 0 }}</span>
+          </button>
+        </div>
+      </div>
+      <div class="flex items-start gap-2 px-2.5 py-2">
+        <span class="w-16 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-wide text-darkest">Genus</span>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            :class="[
+              'rounded-full border px-2.5 py-0.5 text-xs transition',
+              genus === null ? 'border-accent bg-accent-soft text-accent' : 'border-light text-darker hover:text-default',
+            ]"
+            @click="genus = null"
+          >
+            All
+          </button>
+          <button
+            v-for="g in GENERA"
+            :key="g.id"
+            type="button"
+            :class="[
+              'rounded-full border px-2.5 py-0.5 text-xs transition',
+              genus === g.id ? GENUS_PILL[g.id] : 'border-light text-darker hover:text-default',
+            ]"
+            @click="genus = genus === g.id ? null : g.id"
+          >
+            {{ g.label }} <span class="tabular-nums opacity-60">{{ genusCounts.get(g.id) ?? 0 }}</span>
           </button>
         </div>
       </div>

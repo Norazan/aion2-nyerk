@@ -4,6 +4,7 @@ import { settings } from './settings.ts'
 import { timers } from './timers.ts'
 import { logPath, tracker } from './tracker.ts'
 import { updates } from './update.ts'
+import { appVersion } from './version.ts'
 import {
   bubbleDragEnded,
   closeMerchant,
@@ -11,6 +12,10 @@ import {
   hudDragEnded,
   markQuitting,
   merchantDragEnded,
+  killFeedDragEnded,
+  moveKillFeed,
+  resizeKillFeed,
+  setKillFeedOpen,
   moveBubble,
   moveHud,
   moveMerchant,
@@ -18,6 +23,7 @@ import {
   resizeMerchant,
   setHudEditing,
   setPanelExpanded,
+  setPanelTab,
   showPetInPanel,
   showTimersInPanel,
   togglePanel,
@@ -37,7 +43,7 @@ const isPoint = (p: unknown): p is { x: number; y: number } =>
   typeof p === 'object' && p !== null && Number.isFinite((p as { x: unknown }).x) && Number.isFinite((p as { y: unknown }).y)
 
 export function registerIpc(): void {
-  handle('app:info', () => ({ version: app.getVersion(), settingsFile: settings.path, logFile: logPath() }))
+  handle('app:info', () => ({ version: appVersion(), settingsFile: settings.path, logFile: logPath() }))
   handle('app:quit', () => {
     markQuitting()
     app.quit()
@@ -54,7 +60,7 @@ export function registerIpc(): void {
     settings.set(key as SettingKey, value)
   })
 
-  handle('tracker:get', () => ({ status: tracker.status(), pets: tracker.pets(), nearby: tracker.nearby(), shop: tracker.shop(), kina: tracker.kina(), fieldBosses: tracker.fieldBosses() }))
+  handle('tracker:get', () => ({ status: tracker.status(), pets: tracker.pets(), nearby: tracker.nearby(), shop: tracker.shop(), kina: tracker.kina(), fieldBosses: tracker.fieldBosses(), pvp: tracker.pvp() }))
   handle('tracker:setSouls', (pet, souls) => {
     if (Number.isInteger(pet) && Number.isInteger(souls) && souls >= 0 && souls < 100000) tracker.setSouls(pet, souls)
   })
@@ -63,6 +69,7 @@ export function registerIpc(): void {
   })
   handle('tracker:restart', () => tracker.restart())
   handle('tracker:resetSession', () => tracker.resetSession())
+  handle('tracker:clearPvp', () => tracker.clearPvp())
 
   handle('update:get', () => updates.status())
   handle('update:check', () => updates.check())
@@ -76,6 +83,9 @@ export function registerIpc(): void {
   handle('panel:toggle', () => togglePanel())
   handle('panel:hide', () => hidePanel())
   handle('panel:setExpanded', (expanded) => setPanelExpanded(Boolean(expanded)))
+  handle('panel:tab', (tab) => {
+    if (typeof tab === 'string' && /^[a-z]{1,20}$/.test(tab)) setPanelTab(tab)
+  })
 
   handle('hud:setEditing', (editing) => setHudEditing(Boolean(editing)))
   handle('hud:moveTo', (to) => {
@@ -94,6 +104,15 @@ export function registerIpc(): void {
     if (isPoint({ x: size?.width, y: size?.height })) resizeMerchant(size)
   })
   handle('merchant:close', () => closeMerchant())
+  handle('killfeed:open', () => setKillFeedOpen(true))
+  handle('killfeed:close', () => setKillFeedOpen(false))
+  handle('killfeed:moveTo', (to) => {
+    if (isPoint(to)) moveKillFeed(to)
+  })
+  handle('killfeed:dragEnd', () => killFeedDragEnded())
+  handle('killfeed:resize', (size) => {
+    if (isPoint({ x: size?.width, y: size?.height })) resizeKillFeed(size)
+  })
   handle('timers:get', () => timers.alerting())
   handle('timers:dismiss', () => timers.dismiss())
   handle('timers:open', () => {

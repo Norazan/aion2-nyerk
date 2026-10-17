@@ -3,3 +3,4 @@ out/
 dist/
 build/.icon-tmp/
 *.tsbuildinfo
+dist-bundle/

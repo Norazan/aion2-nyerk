@@ -21,10 +21,15 @@ import { broadcast } from './broadcast.ts'
 import { settings } from './settings.ts'
 import { kinaBalance, kinaRebase, NO_KINA, type KinaSession } from '../shared/kina.ts'
 import { fieldBosses } from './fieldBosses.ts'
+import { pvpLog } from './pvpLog.ts'
+import type { SessionCounts } from './restart.ts'
+import { appVersion, shellVersion } from './version.ts'
 import type { FieldBosses } from '../shared/timers.ts'
-import { GAME_ACTIVE_S, NO_NEARBY, type Nearby, type Pet, type ShopItem, type ShopStock, type SoulToast, type TrackerStatus } from '../shared/tracker.ts'
+import { GAME_ACTIVE_S, NO_NEARBY, stockExpired, type Nearby, type Pet, type PvpKill, type ShopItem, type ShopStock, type SoulToast, type TrackerStatus } from '../shared/tracker.ts'
 
 const RESTART_DELAYS_MS = [1000, 3000, 10000, 30000]
+/** How long an update restart waits for the helper to hand over the session's counts. */
+const DUMP_TIMEOUT_MS = 1500
 
 let child: ChildProcessWithoutNullStreams | null = null
 /** Whether the sidecar should be capturing: only while the game runs (see idle.ts). */
@@ -39,11 +44,16 @@ let nearby: Nearby = NO_NEARBY
 const shopTabs = new Map<number, ShopStock>()
 const currentShop = (): ShopStock[] => {
   const now = Date.now()
-  for (const [tab, s] of shopTabs) if (s.nextAt !== null && s.nextAt <= now) shopTabs.delete(tab)
+  for (const [tab, s] of shopTabs) if (stockExpired(s, now)) shopTabs.delete(tab)
   return [...shopTabs.values()]
 }
+
 /** Kina earned since the app started (or the last reset). */
 let kina: KinaSession = NO_KINA
+/** Session counts carried across an update restart, handed to the helper once it is ready. */
+let restoring: { sessions: SessionCounts; world: number | null; position: [number, number] | null } | null = null
+/** Waiting for the helper's answer to dumpSession. */
+let dumpWaiter: ((sessions: SessionCounts | null) => void) | null = null
 function setKina(next: KinaSession): void {
   kina = next
   broadcast('tracker:kina', kina)
@@ -61,6 +71,7 @@ let status: TrackerStatus = {
   synced: null,
   dataFile: null,
   character: null,
+  server: null,
 }
 
 /**
@@ -75,7 +86,8 @@ export function log(line: string): void {
   try {
     if (!logReady) {
       mkdirSync(dirname(logPath()), { recursive: true })
-      writeFileSync(logPath(), `${DISPLAY_NAME} ${app.getVersion()} (${app.isPackaged ? 'installed' : 'development'})\n`)
+      const version = appVersion() === shellVersion() ? appVersion() : `${appVersion()} on shell ${shellVersion()}`
+      writeFileSync(logPath(), `${DISPLAY_NAME} ${version} (${app.isPackaged ? 'installed' : 'development'})\n`)
       logReady = true
     }
     appendFileSync(logPath(), `${new Date().toISOString()} ${line}\n`)
@@ -222,7 +234,16 @@ function handleLine(line: string): void {
     case 'ready':
       restarts = 0
       replacePets(ev['pets'] as Pet[])
-      setStatus({ character: (ev['character'] as { name: string } | null)?.name ?? null })
+      if (restoring) {
+        // After an update restart: the session's counts as they were (answered with a snapshot).
+        command({ cmd: 'restoreSession', ...restoring })
+        log(`session restored from before the restart: ${Object.values(restoring.sessions).reduce((n, pets) => n + Object.values(pets).reduce((a, b) => a + b, 0), 0)} souls`)
+        restoring = null
+      }
+      setStatus({
+        character: (ev['character'] as { name: string } | null)?.name ?? null,
+        server: (ev['character'] as { server?: number } | null)?.server ?? null,
+      })
       fieldBosses.setServer((ev['character'] as { server?: number } | null)?.server ?? null)
       break
     case 'character': {
@@ -230,7 +251,7 @@ function handleLine(line: string): void {
       const name = ev['name'] as string
       log(`character: ${name}${ev['server'] ? ` (server ${ev['server']})` : ''}${ev['switched'] ? ', switched collection' : ''}`)
       replacePets(ev['pets'] as Pet[])
-      setStatus({ character: name })
+      setStatus({ character: name, server: (ev['server'] as number | undefined) ?? null })
       fieldBosses.setServer((ev['server'] as number | undefined) ?? null)
       break
     }
@@ -293,6 +314,19 @@ function handleLine(line: string): void {
     case 'fieldBosses':
       fieldBosses.fromMap(ev['world'] as number, ev['bosses'] as { id: number; up: boolean; at: number }[])
       break
+    case 'pvpKill': {
+      const kill: PvpKill = {
+        at: Date.now(),
+        killer: ev['killer'] as PvpKill['killer'],
+        victim: (ev['victim'] as PvpKill['victim']) ?? null,
+        mine: ev['mine'] === true,
+        died: ev['died'] === true,
+        legion: ev['legion'] === true,
+      }
+      pvpLog.add(kill)
+      log(`pvp: ${kill.killer.name} (${kill.killer.server}) killed ${kill.victim ? `${kill.victim.name} (${kill.victim.server ?? '?'})` : 'a player out of view'}${kill.mine ? ' [you]' : kill.died ? ' [you died]' : ''}`)
+      break
+    }
     case 'kina':
       setKina(kinaBalance(kina, ev['balance'] as number, Date.now()))
       break
@@ -329,8 +363,13 @@ function handleLine(line: string): void {
       broadcast('tracker:nearby', nearby)
       break
     }
+    case 'session':
+      dumpWaiter?.((ev['sessions'] as SessionCounts | undefined) ?? null)
+      break
     case 'error':
       stderrTail = [...stderrTail, `sidecar: ${ev['detail']}`].slice(-20)
+      // A helper from before dumpSession existed: no counts to carry, and no reason to wait.
+      if (String(ev['detail']).includes('dumpSession')) dumpWaiter?.(null)
       break
   }
 }
@@ -356,6 +395,8 @@ export const tracker = {
   nearby: (): Nearby => nearby,
   shop: (): ShopStock[] => currentShop(),
   kina: (): KinaSession => kina,
+  pvp: (): PvpKill[] => pvpLog.all(),
+  clearPvp: (): void => pvpLog.clear(),
   fieldBosses: (): FieldBosses => fieldBosses.all(),
   /** Start the session again: the souls (the helper answers with every pet) and the Kina. */
   resetSession(): void {
@@ -393,6 +434,37 @@ export const tracker = {
     } else if (on) startTracker()
     else setStatus({ state: 'idle', detail: null, lastPacketAgo: null })
   },
+  /** The session's soul counts, every character's, from the helper; null if it cannot say. */
+  dumpSession(): Promise<SessionCounts | null> {
+    if (!child?.stdin.writable) return Promise.resolve(null)
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => finish(null), DUMP_TIMEOUT_MS)
+      const finish = (sessions: SessionCounts | null): void => {
+        clearTimeout(timer)
+        dumpWaiter = null
+        resolve(sessions)
+      }
+      dumpWaiter = finish
+      command({ cmd: 'dumpSession' })
+    })
+  },
+  /**
+   * After an update restart: the session as it was. Kina and the merchant's stock now; the soul
+   * counts (and where you were) once the helper is ready, which it may not be until the game runs.
+   */
+  restoreSession(saved: {
+    kina: KinaSession | null
+    shop: ShopStock[]
+    sessions: SessionCounts | null
+    world: number | null
+    position: [number, number] | null
+  }): void {
+    // The next balance is a new starting point, as after entering the world: the old one may be stale.
+    if (saved.kina) setKina(kinaRebase(saved.kina))
+    for (const stock of saved.shop) shopTabs.set(stock.tab, stock)
+    if (saved.shop.length) broadcast('tracker:shop', currentShop())
+    if (saved.sessions && Object.keys(saved.sessions).length) restoring = { sessions: saved.sessions, world: saved.world, position: saved.position }
+  },
   restart(): void {
     restarts = 0
     stopTracker()
@@ -403,6 +475,7 @@ export const tracker = {
 /** Ask the sidecar to quit, and make sure it is gone. Safe to call from `process.on('exit')`. */
 export function stopTracker(): void {
   stopping = true
+  pvpLog.flush()
   if (restartTimer) clearTimeout(restartTimer)
   restartTimer = null
   const proc = child
@@ -430,6 +503,7 @@ function killTree(proc: ChildProcessWithoutNullStreams): void {
 /** For process exit, where timers never fire. */
 export function killTrackerNow(): void {
   stopping = true
+  pvpLog.flush()
   if (child && child.exitCode === null) killTree(child)
   child = null
 }

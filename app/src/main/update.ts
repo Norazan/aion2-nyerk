@@ -1,31 +1,84 @@
 /**
- * App updates, the way marnis-app does them: electron-updater against a static feed on the same
- * host (`https://nyerk.app/updates/`, set in electron-builder.yml and baked into the build
- * as app-update.yml).
+ * App updates, the way marnis-app does them since its 0.8.0: two feeds on nyerk.app, one flow.
  *
- * Prompted, never silent: no automatic download and no install on quit. A check runs 30 s after
- * start and every 6 hours while Settings allows it; the panel offers Download, then Restart to
- * install. A development run has no feed and says so.
+ * - **Bundles** (`/updates/bundle/`, shared/bundle.ts): the app alone, a few MB, verified against a
+ *   signed manifest and adopted on a restart that takes about as long as opening the app. Nothing
+ *   is reinstalled. Asked first: the cheap update wins whenever there is one.
+ * - **Installers** (`/updates/latest.yml`, electron-updater, set in electron-builder.yml): the whole
+ *   install, for a new Electron or a new tracker helper. Asked when the bundle feed has nothing for
+ *   this install. An installer no newer than the app running is not offered (a bundle can be ahead
+ *   of the installers).
+ *
+ * Automatic, and said out loud: the feed is checked at start and every hour while Settings allows
+ * it. An update found at start is downloaded and installed straight away; the panel and a Windows
+ * notification say so a few seconds before the restart. One found by the hourly check while Aion 2
+ * is running waits for the game to close (or the Restart button, or the next start) rather than
+ * restart under someone mid-fight. Every restart carries the session across (restart.ts), so
+ * nothing is lost but the second it takes.
+ *
+ * A version that was installed and is still offered after the restart did not take: it is tried
+ * twice, then left to a click (restart.ts, attempts). A development run has no feed and says so.
  */
-import { app } from 'electron'
+import { app, net, Notification } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { broadcast } from './broadcast.ts'
-import { settings } from './settings.ts'
-import { machineHash } from './machine.ts'
-import { log } from './tracker.ts'
-import { markQuitting } from './windows.ts'
+import { join } from 'node:path'
+import { DISPLAY_NAME } from '../shared/app.ts'
+import { BUNDLE_FEED_URL, compareVersions, readActiveBundle, type BundleManifest, type BundleOffer } from '../shared/bundle.ts'
 import { initialUpdateStatus, type UpdateStatus } from '../shared/update.ts'
+import { broadcast } from './broadcast.ts'
+import { activateBundle, checkForBundle, downloadBundle, markBundleStarted, reconcileBundles, type BundleDeps } from './bundles.ts'
+import { game } from './game.ts'
+import { machineHash } from './machine.ts'
+import { attempts, writeRestartState, type RestartState } from './restart.ts'
+import { settings } from './settings.ts'
+import { timers } from './timers.ts'
+import { log, tracker } from './tracker.ts'
+import { appVersion, shellVersion } from './version.ts'
+import { markQuitting, merchantOpen, panelTab, panelVisible, saveWindowPlaces } from './windows.ts'
 
-const INITIAL_DELAY_MS = 30_000
-const INTERVAL_MS = 6 * 60 * 60 * 1000
+/** After start, once the windows are up: soon enough that an update lands before anyone settles in. */
+const LAUNCH_DELAY_MS = 3_000
+const INTERVAL_MS = 60 * 60 * 1000
+/** How long the "restarting to install" notice is up before the restart. */
+const RESTART_NOTICE_MS = 5_000
+/** A downloaded bundle that has run this long without dying has started: the loader's count clears. */
+const STARTED_AFTER_MS = 20_000
 
 let status: UpdateStatus = initialUpdateStatus(app.getVersion())
 let wired = false
-let timer: NodeJS.Timeout | null = null
+/** What Download and Restart act on. */
+let pending: { kind: 'bundle'; offer: BundleOffer; manifest: BundleManifest } | { kind: 'installer' } | null = null
+let restartTimer: NodeJS.Timeout | null = null
+let waitingForGameToClose = false
 
 function set(patch: Partial<UpdateStatus>): void {
   status = { ...status, ...patch }
   broadcast('update:status', status)
+}
+
+const dataDir = (): string => app.getPath('userData')
+const bundleRoot = (): string => join(dataDir(), 'bundles')
+
+function bundleDeps(): BundleDeps {
+  return {
+    // NYERK_BUNDLE_FEED: another feed, to try a bundle before it is published. Its manifest must
+    // still be signed by the key this build trusts.
+    feed: process.env['NYERK_BUNDLE_FEED'] ?? BUNDLE_FEED_URL,
+    fetch: async (url) => {
+      // The same gate as the installer feed (aion2-api's ban list): see machine.ts.
+      const response = await net.fetch(url, { headers: { 'X-A2-Machine': machineHash(), 'Cache-Control': 'no-cache' } })
+      return {
+        ok: response.ok,
+        status: response.status,
+        text: () => response.text(),
+        bytes: async () => new Uint8Array(await response.arrayBuffer()),
+      }
+    },
+    root: bundleRoot(),
+    shellVersion: shellVersion(),
+    runningVersion: appVersion(),
+    onWarning: (m) => log(`update warning: ${m}`),
+  }
 }
 
 function wire(): void {
@@ -44,12 +97,94 @@ function wire(): void {
     error: (m: unknown) => log(`update error: ${String(m)}`),
     debug: () => undefined,
   }
-  autoUpdater.on('checking-for-update', () => set({ state: 'checking', error: null }))
-  autoUpdater.on('update-available', (info) => set({ state: 'available', version: info.version, checkedAt: Date.now() }))
-  autoUpdater.on('update-not-available', () => set({ state: 'none', version: null, checkedAt: Date.now() }))
+  autoUpdater.on('update-available', (info) => {
+    // A bundle can be ahead of the newest installer: that installer has nothing to add.
+    if (compareVersions(info.version, appVersion()) <= 0) {
+      pending = null
+      set({ state: 'none', version: null, kind: null, checkedAt: Date.now() })
+      return
+    }
+    pending = { kind: 'installer' }
+    set({ state: 'available', kind: 'installer', version: info.version, checkedAt: Date.now() })
+  })
+  autoUpdater.on('update-not-available', () => set({ state: 'none', version: null, kind: null, checkedAt: Date.now() }))
   autoUpdater.on('download-progress', (p) => set({ state: 'downloading', percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (info) => set({ state: 'ready', version: info.version, percent: 100 }))
   autoUpdater.on('error', (err) => set({ state: 'error', error: err?.message ?? String(err), checkedAt: Date.now() }))
+}
+
+/**
+ * What the next start needs to come back as this one is. The session's souls are asked of the
+ * tracker helper, which goes down with the app.
+ */
+async function saveRestartState(to: string): Promise<void> {
+  saveWindowPlaces()
+  const dumped = await tracker.dumpSession()
+  const nearby = tracker.nearby()
+  const state: RestartState = {
+    at: Date.now(),
+    from: appVersion(),
+    to,
+    panel: { visible: panelVisible(), tab: panelTab() },
+    merchantOpen: merchantOpen(),
+    kina: tracker.kina(),
+    shop: tracker.shop(),
+    sessions: dumped,
+    world: nearby.world,
+    position: nearby.position,
+    timers: timers.snapshot(),
+  }
+  writeRestartState(dataDir(), state)
+  log(`update: saved the session for the restart (${dumped ? Object.values(dumped).reduce((n, pets) => n + Object.keys(pets).length, 0) : 'no'} pets with session souls)`)
+}
+
+/** Quit and come straight back, on whatever the loader now names. */
+function relaunch(): void {
+  markQuitting()
+  // Not with --builtin-bundle: that is for one start after a bundle failed, not for good.
+  app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--builtin-bundle') })
+  app.quit()
+}
+
+function notify(body: string): void {
+  if (!Notification.isSupported()) return
+  new Notification({ title: DISPLAY_NAME, body, silent: true, icon: join(__dirname, '../renderer/icon.png') }).show()
+}
+
+/** Say the restart is coming, then restart into the update. */
+function restartSoon(): void {
+  if (restartTimer || (status.state !== 'ready' && status.state !== 'restarting')) return
+  const version = status.version
+  log(`update: ${version} is ready; restarting in ${RESTART_NOTICE_MS / 1000} s to install it`)
+  set({ state: 'restarting', restartAt: Date.now() + RESTART_NOTICE_MS })
+  notify(
+    status.kind === 'bundle'
+      ? `Version ${version} was found. ${DISPLAY_NAME} restarts in a few seconds to install it, and picks up where it left off.`
+      : `Version ${version} was found. ${DISPLAY_NAME} restarts in a few seconds to install it (this one takes a little longer), and picks up where it left off.`,
+  )
+  restartTimer = setTimeout(() => void updates.install(), RESTART_NOTICE_MS)
+}
+
+/**
+ * Check, download and install without a click. `launch`: restart as soon as it is downloaded.
+ * `hourly`: the same while the game is closed; while it runs, wait for it to close.
+ */
+async function autoUpdate(trigger: 'launch' | 'hourly'): Promise<void> {
+  if (!settings.get('autoUpdateCheck')) return
+  await updates.check()
+  if (status.state !== 'available' && status.state !== 'ready') return
+  if (status.version && attempts.exhausted(dataDir(), status.version)) {
+    log(`update: ${status.version} was installed twice and is still offered; waiting for a click`)
+    return
+  }
+  await updates.download()
+  if (status.state !== 'ready') return
+  if (trigger === 'hourly' && game.running()) {
+    if (!waitingForGameToClose) log(`update: ${status.version} is ready; it installs once Aion 2 closes`)
+    waitingForGameToClose = true
+    return
+  }
+  restartSoon()
 }
 
 export const updates = {
@@ -60,9 +195,23 @@ export const updates = {
       set({ state: 'unsupported' })
       return
     }
-    // Never check over a download in progress or one waiting to be installed.
-    if (status.state === 'downloading' || status.state === 'ready' || status.state === 'checking') return
+    // Never over a check, a download, or an update waiting to be installed.
+    if (['checking', 'downloading', 'ready', 'restarting'].includes(status.state)) return
+    set({ state: 'checking', error: null })
+    try {
+      const result = await checkForBundle(bundleDeps())
+      if (result.outcome === 'offer') {
+        pending = { kind: 'bundle', offer: result.offer, manifest: result.manifest }
+        set({ state: 'available', kind: 'bundle', version: result.offer.version, checkedAt: Date.now() })
+        return
+      }
+      // A bundle feed that is down must not stand in the way of an installer that is there.
+      if (result.outcome === 'error') log(`update warning: the bundle feed: ${result.error}`)
+    } catch (err) {
+      log(`update warning: the bundle feed: ${(err as Error).message}`)
+    }
     wire()
+    pending = null
     try {
       await autoUpdater.checkForUpdates()
     } catch (err) {
@@ -74,33 +223,87 @@ export const updates = {
     if (status.state !== 'available') return
     set({ state: 'downloading', percent: 0 })
     try {
-      await autoUpdater.downloadUpdate()
+      if (pending?.kind === 'bundle') {
+        if (pending.offer.needsDownload) await downloadBundle(bundleDeps(), pending.manifest)
+        set({ state: 'ready', percent: 100 })
+      } else {
+        await autoUpdater.downloadUpdate()
+      }
     } catch (err) {
       set({ state: 'error', error: (err as Error).message })
     }
   },
 
-  install(): void {
-    if (status.state !== 'ready') return
-    log(`update: restarting to install ${status.version}`)
+  /** Save the session, then restart into the update (the Restart button, or restartSoon). */
+  async install(): Promise<void> {
+    if ((status.state !== 'ready' && status.state !== 'restarting') || !status.version) return
+    const version = status.version
+    if (restartTimer) clearTimeout(restartTimer)
+    restartTimer = null
+    set({ state: 'restarting', restartAt: Date.now() })
+    log(`update: restarting to install ${version} (${pending?.kind ?? 'installer'})`)
+    try {
+      await saveRestartState(version)
+    } catch (err) {
+      log(`update warning: could not save the session for the restart: ${(err as Error).message}`)
+    }
+    attempts.record(dataDir(), version)
+    if (pending?.kind === 'bundle') {
+      try {
+        // The built-in app is named by clearing the pointer (a rollback to the install's own).
+        await activateBundle(bundleRoot(), version === shellVersion() ? null : version)
+      } catch (err) {
+        set({ state: 'error', error: `Could not switch to ${version}: ${(err as Error).message}` })
+        return
+      }
+      relaunch()
+      return
+    }
     // As in marnis-app: mark the quit as meant, or the tray app's close handling cancels it and
     // the new version bounces off the single-instance lock back to the old one. Silent install,
-    // relaunched afterwards: the click on Restart was the consent.
+    // relaunched afterwards.
     markQuitting()
     autoUpdater.quitAndInstall(true, true)
   },
 }
 
-/** Start the periodic checks (installed builds only, while the setting allows). */
+/** A downloaded bundle that is running and has not died: tell the loader it starts fine. */
+function watchBundleStart(): void {
+  const active = readActiveBundle()
+  if (active?.source !== 'downloaded') return
+  let done = false
+  const started = (): void => {
+    if (done) return
+    done = true
+    void markBundleStarted(bundleRoot(), active.version).catch((err: unknown) => log(`update warning: could not record a good start: ${String(err)}`))
+  }
+  // A window that has loaded proves main, preload and the renderer; with the game closed there may
+  // be no window for a long time, so staying up a while counts too.
+  app.on('browser-window-created', (_event, win) => win.webContents.once('did-finish-load', started))
+  setTimeout(started, STARTED_AFTER_MS).unref()
+}
+
+/** At start: bundle housekeeping, then the launch check and the hourly ones (installed builds only). */
 export function startUpdateChecks(): void {
+  set({ current: appVersion() })
   if (!app.isPackaged) {
     set({ state: 'unsupported' })
     return
   }
-  const tick = (): void => {
-    if (settings.get('autoUpdateCheck')) void updates.check()
-  }
-  setTimeout(tick, INITIAL_DELAY_MS).unref()
-  timer = setInterval(tick, INTERVAL_MS)
-  timer.unref()
+  const active = readActiveBundle()
+  log(`version ${appVersion()} (${active?.source === 'downloaded' ? `downloaded bundle on shell ${shellVersion()}` : 'built in'})`)
+  attempts.settle(dataDir(), appVersion())
+  watchBundleStart()
+  void reconcileBundles({ root: bundleRoot(), shellVersion: shellVersion(), runningVersion: appVersion() }).catch((err: unknown) =>
+    log(`update warning: could not tidy the bundles folder: ${String(err)}`),
+  )
+
+  setTimeout(() => void autoUpdate('launch'), LAUNCH_DELAY_MS).unref()
+  setInterval(() => void autoUpdate('hourly'), INTERVAL_MS).unref()
+  // An update downloaded while the game ran installs once it closes.
+  game.onChange((running) => {
+    if (running || !waitingForGameToClose || status.state !== 'ready') return
+    waitingForGameToClose = false
+    restartSoon()
+  })
 }

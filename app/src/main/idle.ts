@@ -16,7 +16,7 @@
 import { game } from './game.ts'
 import { settings } from './settings.ts'
 import { log, startTracker, stopTracker, tracker } from './tracker.ts'
-import { closeOverlays, createBubble, createHud, onPanelVisible, panelVisible } from './windows.ts'
+import { closeOverlays, createBubble, createHud, createKillFeed, onPanelVisible, panelVisible } from './windows.ts'
 
 const EXIT_GRACE_MS = 20_000
 const LINGER_MS = 120_000
@@ -43,6 +43,7 @@ function wake(why: string): void {
   asleep = false
   log(`awake: ${why}`)
   createBubble()
+  createKillFeed()
   createHud()
   tracker.setCapture(true)
 }

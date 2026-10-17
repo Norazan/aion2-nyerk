@@ -13,8 +13,9 @@ to keep opening the Pets menu.
   the HUD, and see where each soul drops on a map.
 - **Kina per hour:** this session's Kina rate with a timeline, in the panel and on the HUD.
 - **Timers:** the game's events (Shugo Festival, the Black Cloud Merchant, rifts, the siege…) and
-  Verteron's field bosses, read from the map's field boss list, with optional alerts. Field boss
-  times are shared between players so they stay right when you have not opened the map.
+  the field bosses of Verteron, Altgard and Lower Reshanta, read from the map's field boss list,
+  with optional alerts. Field boss times are shared between players so they stay right when you
+  have not opened the map.
 - **Black Cloud Merchant:** when you open one of its tabs, a window lists the pets it sells that
   you have not maxed, with where their soul monsters spawn.
 - **One collection per character:** switching to an alt shows that character's pets.

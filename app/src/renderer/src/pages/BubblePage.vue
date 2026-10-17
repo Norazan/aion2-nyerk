@@ -7,6 +7,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { statusText, statusTone } from '@/components/StatusDot.vue'
 import { bridge } from '@/lib/bridge.ts'
 import { playChime } from '@/lib/chime.ts'
+import { DEFAULT_SOUND } from '@shared/timers.ts'
 import { windowDrag } from '@/lib/windowDrag.ts'
 import { useApp } from '@/stores/app.ts'
 
@@ -22,11 +23,19 @@ watch(
   },
 )
 
-// The chime plays here: the bubble is up whenever the game is, and one window plays it once.
+// The chime plays here: the bubble is up whenever the game is, and one window plays it once. Each
+// timer plays its own sound; timers alerting together with the same sound play it once.
 let offAlert: (() => void) | null = null
+const lastPlayed = new Map<string, number>()
 onMounted(() => {
-  offAlert = bridge().on('timers:alert', () => {
-    if (store.settings.timers.sound) playChime(store.settings.timers.volume)
+  offAlert = bridge().on('timers:alert', (a) => {
+    const cfg = store.settings.timers
+    if (!cfg.sound) return
+    const sound = cfg.sounds[a.id] ?? DEFAULT_SOUND
+    const now = Date.now()
+    if (now - (lastPlayed.get(sound) ?? 0) < 1000) return
+    lastPlayed.set(sound, now)
+    playChime(cfg.volume, sound)
   })
 })
 onBeforeUnmount(() => offAlert?.())

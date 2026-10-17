@@ -150,7 +150,13 @@ class Tracker:
         self.before_sync: tuple[float, dict, P.Collection] | None = None
         # The map's field boss list, as last passed on: it comes every 3 s, unchanged mostly.
         self.field_bosses: tuple | None = None
+        # The kill feed: the players in view (entity -> Player), your own entity in this zone (from
+        # your zone entry record), and the player kills passed on lately (each is sent once).
+        self.players: dict[int, P.Player] = {}
+        self.self_entity: int | None = None
+        self.pvp_seen: dict[tuple[int, int], float] = {}
         self.self_votes: collections.Counter = collections.Counter()
+        self.legions: dict[int, str] = {}  # entity -> legion name, for the players around you
 
     def on_packet(self, ts: float, pkt: bytes) -> None:
         # Under the lock: the app's helper reads `visible` from another thread.
@@ -182,6 +188,8 @@ class Tracker:
             # A new zone: nothing from the last one is around you any more.
             self.world, self.position = m.world, (m.x, -m.y)
             self.visible.clear()
+            self.players.clear()
+            self.legions.clear()
             self.nearby_dirty = True
         elif t := P.parse_self_teleport(pkt):
             self.position = (t[0], -t[1])
@@ -190,7 +198,24 @@ class Tracker:
             self.position = (c[1], -c[2])
             self.nearby_dirty = True
         if (who := P.parse_character(pkt)) is not None:
+            self.self_entity = who.entity
             self._character(ts, who)
+        if (player := P.parse_player(pkt)) is not None:
+            self.players[player.entity] = player
+        if (legion := P.parse_legion(pkt)) is not None:
+            self.legions[legion.entity] = legion.name
+            me = self.self_entity if self.self_entity is not None else self.self_id()
+            if legion.entity == me:
+                self._my_legion(legion.name)
+        if (credit := P.parse_kill_credit(pkt)) is not None:
+            me = self.character()
+            if self.self_entity is None and me and credit.name == me["name"] and me["server"] in (None, credit.server):
+                # Started mid-game (no zone entry yet): a kill credited to you, monsters' too, says who you are.
+                self.self_entity = credit.killer
+                if credit.killer in self.legions:
+                    self._my_legion(self.legions[credit.killer])
+            if credit.player_victim:
+                self._pvp_kill(ts, credit)
         if soul := P.parse_soul(pkt):
             self._soul(ts, soul)
         elif crystal := P.parse_crystal(pkt):
@@ -254,6 +279,28 @@ class Tracker:
         with self.lock:
             self.session.clear()
 
+    def session_counts(self) -> dict[str, dict[str, int]]:
+        """Every character's session counts ('' before one was seen), for an app update restart."""
+        with self.lock:
+            return {name or "": {str(pid): n for pid, n in counts.items() if n > 0}
+                    for name, counts in self.sessions.items() if any(n > 0 for n in counts.values())}
+
+    def restore_sessions(self, sessions: dict, world: int | None = None,
+                         position: list | None = None) -> None:
+        """The counts session_counts gave before an app update restart, back in place; and where
+        you were, until the next zone load says otherwise."""
+        with self.lock:
+            for name, counts in sessions.items():
+                session = self.sessions.setdefault(name or None, collections.Counter())
+                session.clear()
+                session.update({int(pid): int(n) for pid, n in counts.items() if int(n) > 0})
+            self.session = self.sessions.setdefault(self.data.get("current"), collections.Counter())
+            if self.world is None and isinstance(world, int):
+                self.world = world
+                if isinstance(position, list) and len(position) == 2:
+                    self.position = (float(position[0]), float(position[1]))
+                self.nearby_dirty = True
+
     def set_souls(self, pid: int, souls: int) -> dict:
         with self.lock:
             self._pet(pid)["souls"] = souls
@@ -276,7 +323,8 @@ class Tracker:
     def character(self) -> dict | None:
         """The character playing (the one the collection is), or None before one was seen."""
         name = self.data.get("current")
-        return {"name": name, "server": self.data.get("characters", {}).get(name, {}).get("server")} if name else None
+        entry = self.data.get("characters", {}).get(name, {})
+        return {"name": name, "server": entry.get("server"), "guild": entry.get("guild")} if name else None
 
     def _character(self, ts: float, who: P.Character) -> None:
         """Pet levels are per character: each has its own collection (souls, levels, crystals),
@@ -285,9 +333,12 @@ class Tracker:
         chars = self.data.setdefault("characters", {})
         old = self.data.get("current")
         if who.name == old:
-            if who.server is not None and chars.get(old, {}).get("server") != who.server:
-                chars.setdefault(old, {})["server"] = who.server
+            entry = chars.setdefault(old, {})
+            if who.server is not None and entry.get("server") != who.server:
+                entry["server"] = who.server
                 self._save()
+            if who.guild is not None:
+                self._my_legion(who.guild)
             return
         resync = None
         if old is not None:
@@ -305,6 +356,8 @@ class Tracker:
         entry = chars.setdefault(who.name, {})
         if who.server is not None:
             entry["server"] = who.server
+        if who.guild is not None:
+            entry["guild"] = who.guild
         self.data["current"] = who.name
         self.session = self.sessions.setdefault(who.name, collections.Counter())
         self._save()
@@ -314,6 +367,51 @@ class Tracker:
             self._sync(ts, resync, keep=False)
         self.on_event({"type": "character", "ts": ts, **self.character(), "switched": old is not None,
                        "pets": [self.view(pid) for pid in self.data["pets"]]})
+
+    def _my_legion(self, name: str) -> None:
+        """Your legion, kept with the character playing (for the PvP Log's My Guild)."""
+        me = self.data.get("current")
+        if me is None:
+            return
+        entry = self.data.setdefault("characters", {}).setdefault(me, {})
+        if entry.get("guild") != name:
+            entry["guild"] = name
+            self._save()
+            print(f"legion: {me} is in {name}", file=sys.stderr)
+
+    def _pvp_kill(self, ts: float, credit: P.KillCredit) -> None:
+        """A player killed a player around you (the killing blow): passed on once, with the victim's
+        name if they were in view, and whether you were the killer or the victim."""
+        key = (credit.victim, credit.killer)
+        if ts - self.pvp_seen.get(key, float("-inf")) < 30:
+            return
+        self.pvp_seen = {k: t for k, t in self.pvp_seen.items() if ts - t < 60}
+        self.pvp_seen[key] = ts
+        me = self.data.get("current")
+        if me is not None and credit.name == me and credit.guild is not None:
+            self._my_legion(credit.guild)  # your own kill names your legion
+        mine = self.data.get("characters", {}).get(me, {}) if me else {}
+        my_server, my_guild = mine.get("server"), mine.get("guild")
+        died = credit.victim == self.self_entity and self.self_entity is not None
+        victim = self.players.get(credit.victim)
+        victim_view = ({"name": me, "server": my_server, "guild": my_guild} if died else
+                       {"name": victim.name, "server": victim.server,
+                        "guild": victim.guild or self.legions.get(credit.victim)} if victim else None)
+        killer_guild = credit.guild or self.legions.get(credit.killer)
+
+        def ours(guild: str | None, server: int | None) -> bool:
+            # Legion names are per server: one of the same name elsewhere is another legion.
+            return my_guild is not None and guild == my_guild and (server is None or my_server is None or server == my_server)
+
+        self.on_event({
+            "type": "pvpKill", "ts": ts,
+            "killer": {"name": credit.name, "server": credit.server, "guild": killer_guild},
+            "victim": victim_view,
+            "mine": me is not None and credit.name == me and (my_server is None or credit.server == my_server),
+            "died": died,
+            # Your legion killed or was killed (you included).
+            "legion": ours(killer_guild, credit.server) or (victim_view is not None and ours(victim_view["guild"], victim_view["server"])),
+        })
 
     def _sync(self, ts: float, coll: P.Collection, keep: bool = True) -> None:
         """Entering the world sends the whole collection: take the server's numbers for every pet."""

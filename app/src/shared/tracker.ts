@@ -42,6 +42,8 @@ export interface TrackerStatus {
   dataFile: string | null
   /** The character whose collection this is (pet levels are per character); null until seen. */
   character: string | null
+  /** That character's game server (Kaisinel 1104); null until seen. */
+  server: number | null
 }
 
 /** What is loaded around you, from the tracker: monsters by code, your zone and position. */
@@ -59,6 +61,20 @@ export const NO_NEARBY: Nearby = { world: null, position: null, positionAt: null
 
 /** A pet the collection has no record of yet (seen nearby, or opened from the map). */
 export const blankPet = (id: number): Pet => ({ id, name: null, souls: 0, level: 0, levelEstimated: true, crystals: 0, session: 0 })
+
+/** A player killed by a player around you (the killing blow), as the PvP Log lists it. */
+export interface PvpKill {
+  at: number
+  killer: { name: string; server: number; guild: string | null }
+  /** Null when the victim was never in view (no name to give). */
+  victim: { name: string; server: number | null; guild?: string | null } | null
+  /** You were the killer. */
+  mine: boolean
+  /** You were the victim. */
+  died: boolean
+  /** Your legion was the killer's or the victim's (you included). */
+  legion: boolean
+}
 
 /** A soul as the HUD toasts it. */
 export interface SoulToast {
@@ -117,4 +133,18 @@ export interface ShopStock {
   /** When the tab was opened (ms since epoch, stamped by main). */
   at: number
   items: ShopItem[]
+}
+
+/**
+ * How long a stock that came at or after its own restock time is kept: for a minute or two past
+ * the hour the game still sends the old stock, restock time and all, and shows it (2026-10-14:
+ * the Pets tab at 23:00:01-23:00:16 said "restocks 23:00", the new stock came at 23:01:59).
+ */
+export const LATE_STOCK_KEEP_MS = 5 * 60_000
+
+/** The stock has changed since this tab was opened (a newer opening replaces it anyway). */
+export function stockExpired(stock: ShopStock, now: number): boolean {
+  if (stock.nextAt === null) return false
+  if (stock.at < stock.nextAt) return stock.nextAt <= now
+  return now >= stock.at + LATE_STOCK_KEEP_MS
 }

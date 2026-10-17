@@ -15,8 +15,11 @@ import { moveDataFolder, OLD_NAMES } from './migrate.ts'
 import { startTimers } from './timers.ts'
 import { killTrackerNow, log, stopTracker, tracker } from './tracker.ts'
 import { createTray, setTrayTooltip } from './tray.ts'
+import { takeRestartState } from './restart.ts'
+import { timers } from './timers.ts'
 import { startUpdateChecks } from './update.ts'
-import { applyWindowSettings, markQuitting, refreshHud, showMerchant, showPanel, startOnTopWatch } from './windows.ts'
+import { appVersion } from './version.ts'
+import { applyWindowSettings, markQuitting, refreshHud, showMerchant, showPanel, showPanelTab, startOnTopWatch } from './windows.ts'
 
 // The name is also the data folder's (%APPDATA%\<name>): the old one is moved across once.
 app.setName(DISPLAY_NAME)
@@ -34,6 +37,13 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     if (migrated) log(`data folder: ${migrated}`)
+    // Back from an update restart: the session, the alerts already seen, the open windows.
+    const restored = takeRestartState(app.getPath('userData'))
+    if (restored) {
+      log(`restarted for an update: ${restored.from} -> ${restored.to}${restored.to === appVersion() ? '' : ` (running ${appVersion()})`}`)
+      tracker.restoreSession(restored)
+      timers.restore(restored.timers)
+    }
     startHealthWatch()
     startFieldBosses()
     startOnTopWatch()
@@ -64,6 +74,11 @@ if (!app.requestSingleInstanceLock()) {
     void startIdleWatch()
     startUpdateChecks()
     startTimers()
+    if (restored?.panel.visible) {
+      if (restored.panel.tab) showPanelTab(restored.panel.tab)
+      else showPanel()
+    }
+    if (restored?.merchantOpen) showMerchant()
   })
 
   // Tray app: closing every window is not quitting.

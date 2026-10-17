@@ -34,10 +34,13 @@ let bubble: BrowserWindow | null = null
 let panel: BrowserWindow | null = null
 let hud: BrowserWindow | null = null
 let merchant: BrowserWindow | null = null
+let killFeed: BrowserWindow | null = null
 let merchantSize = { width: 0, height: 0 }
 let panelExpanded = false
 let hudEditing = false
 let hudSize = { width: 0, height: 0 }
+/** The panel's tab, as the panel last said: an update restart reopens it there. */
+let tab: string | null = null
 let quitting = false
 const panelListeners = new Set<(visible: boolean) => void>()
 
@@ -208,13 +211,27 @@ export function showPetInPanel(pet: number): void {
   sendToPanel('panel:showPet', pet)
 }
 
+/** The panel's page tells main which tab it is on; an update restart brings it back to it. */
+export function setPanelTab(id: string): void {
+  tab = id
+}
+
+export function panelTab(): string | null {
+  return tab
+}
+
+/** Open the panel on a tab (after an update restart, the one it was on). */
+export function showPanelTab(id: string): void {
+  sendToPanel('panel:showTab', id)
+}
+
 /** The panel on its Timers tab, these timers highlighted: a click on the bubble during an alert. */
 export function showTimersInPanel(ids: TimerId[]): void {
   sendToPanel('panel:showTimers', ids)
 }
 
 /** Show the panel (open if hidden, never toggled shut) and tell it what to show, once loaded. */
-function sendToPanel<C extends 'panel:showPet' | 'panel:showTimers'>(channel: C, payload: EventChannels[C]): void {
+function sendToPanel<C extends 'panel:showPet' | 'panel:showTimers' | 'panel:showTab'>(channel: C, payload: EventChannels[C]): void {
   showPanel()
   const win = panel
   if (!alive(win)) return
@@ -371,6 +388,10 @@ function refreshMerchant(): void {
   }
 }
 
+export function merchantOpen(): boolean {
+  return alive(merchant)
+}
+
 export function resizeMerchant(size: { width: number; height: number }): void {
   merchantSize = { width: Math.ceil(size.width), height: Math.ceil(size.height) }
   refreshMerchant()
@@ -388,7 +409,73 @@ export function merchantDragEnded(): void {
   settings.set('merchantWindow', { x, y })
 }
 
+// ---- kill feed --------------------------------------------------------------------------------
+
+const KILL_FEED_WIDTH = 312
+
+function killFeedPosition(): Point {
+  const saved = settings.get('killFeed').position
+  if (saved) return saved
+  const area = screen.getPrimaryDisplay().workArea
+  return { x: area.x + area.width - KILL_FEED_WIDTH - 24, y: area.y + 120 }
+}
+
+/** The kill feed window, if the PvP Log has it open: made with the other overlays. */
+export function createKillFeed(): void {
+  if (!settings.get('killFeed').open || alive(killFeed)) return
+  const p = killFeedPosition()
+  const win = overlayWindow({ x: p.x, y: p.y, width: KILL_FEED_WIDTH, height: 40 })
+  killFeed = win
+  win.on('closed', () => (killFeed = null))
+  load(win, 'killfeed')
+  win.webContents.once('did-finish-load', () => alive(win) && win.showInactive())
+}
+
+/** PvP Log → Open HUD / the window's X. Remembered, so it comes back with the game. */
+export function setKillFeedOpen(open: boolean): void {
+  settings.set('killFeed', { ...settings.get('killFeed'), open })
+  if (open) createKillFeed()
+  else if (alive(killFeed)) {
+    killFeed.destroy()
+    killFeed = null
+  }
+}
+
+export function resizeKillFeed(size: { width: number; height: number }): void {
+  if (!alive(killFeed) || size.width <= 0 || size.height <= 0) return
+  const { x, y } = killFeed.getBounds()
+  killFeed.setBounds(clampToDisplay({ x, y, width: Math.ceil(size.width), height: Math.ceil(size.height) }))
+}
+
+export function moveKillFeed(to: Point): void {
+  if (!alive(killFeed)) return
+  const { width, height } = killFeed.getBounds()
+  killFeed.setBounds(clampToDisplay({ x: to.x, y: to.y, width, height }))
+}
+
+export function killFeedDragEnded(): void {
+  if (!alive(killFeed)) return
+  const { x, y } = killFeed.getBounds()
+  settings.set('killFeed', { ...settings.get('killFeed'), position: { x, y } })
+}
+
 // ---- all ------------------------------------------------------------------------------------
+
+/**
+ * Before an update restart: where each overlay is now, for any that was placed by hand. They are
+ * saved at the end of every drag already; this covers one caught mid-drag.
+ */
+export function saveWindowPlaces(): void {
+  const at = (w: BrowserWindow | null): Point | null => (alive(w) ? { x: w.getBounds().x, y: w.getBounds().y } : null)
+  const b = at(bubble)
+  if (b && settings.get('bubble')) settings.set('bubble', b)
+  const h = at(hud)
+  if (h && settings.get('hud').position) settings.set('hud', { ...settings.get('hud'), position: h })
+  const m = at(merchant)
+  if (m && settings.get('merchantWindow')) settings.set('merchantWindow', m)
+  const k = at(killFeed)
+  if (k && settings.get('killFeed').position) settings.set('killFeed', { ...settings.get('killFeed'), position: k })
+}
 
 const ON_TOP_EVERY_MS = 5_000
 
@@ -401,7 +488,7 @@ const ON_TOP_EVERY_MS = 5_000
  */
 export function startOnTopWatch(): void {
   setInterval(() => {
-    for (const win of [bubble, hud, merchant]) {
+    for (const win of [bubble, hud, merchant, killFeed]) {
       if (!alive(win) || !win.isVisible()) continue
       win.setAlwaysOnTop(true, 'screen-saver')
       win.moveTop()
@@ -412,7 +499,7 @@ export function startOnTopWatch(): void {
 /** Settings that change how the windows behave, applied live. */
 export function applyWindowSettings(): void {
   const hidden = settings.get('hideFromCapture')
-  for (const w of [bubble, panel, hud, merchant]) if (alive(w)) w.setContentProtection(hidden)
+  for (const w of [bubble, panel, hud, merchant, killFeed]) if (alive(w)) w.setContentProtection(hidden)
   if (!settings.get('hud').merchant) closeMerchant()
   if (alive(panel)) {
     const onTop = settings.get('panelOnTop')
@@ -427,10 +514,11 @@ export function applyWindowSettings(): void {
  * is only hidden keeps its renderer process. An open panel stays open.
  */
 export function closeOverlays(): void {
-  for (const win of [bubble, hud, merchant]) if (alive(win)) win.destroy()
+  for (const win of [bubble, hud, merchant, killFeed]) if (alive(win)) win.destroy()
   bubble = null
   hud = null
   merchant = null
+  killFeed = null
   hudEditing = false
   hudSize = { width: 0, height: 0 }
   if (alive(panel) && !panel.isVisible()) {
@@ -465,6 +553,12 @@ export function rebuildWindow(win: BrowserWindow): string | null {
     merchant = null
     showMerchant()
     return 'merchant'
+  }
+  if (win === killFeed) {
+    win.destroy()
+    killFeed = null
+    createKillFeed()
+    return 'killfeed'
   }
   if (win === panel) {
     const visible = win.isVisible()

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // The panel the bubble opens: the collection, this session, the timers, and settings. Escape or ×
 // hides it.
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CollectionTab from '@/components/panel/CollectionTab.vue'
 import PetDetail from '@/components/panel/PetDetail.vue'
 import SessionTab from '@/components/panel/SessionTab.vue'
+import PvpLogTab from '@/components/panel/PvpLogTab.vue'
 import SettingsTab from '@/components/panel/SettingsTab.vue'
 import TimersTab from '@/components/panel/TimersTab.vue'
 import StatusDot, { statusText } from '@/components/StatusDot.vue'
@@ -17,9 +18,28 @@ const TABS = [
   { id: 'collection', label: 'Collection' },
   { id: 'session', label: 'Session' },
   { id: 'timers', label: 'Timers' },
+  { id: 'pvp', label: 'PvP Log' },
   { id: 'settings', label: 'Settings' },
 ] as const
 const tab = ref<(typeof TABS)[number]['id']>('collection')
+// Main keeps the tab, so an update restart reopens the panel where it was.
+watch(tab, (t) => void bridge().invoke('panel:tab', t), { immediate: true })
+
+const syncedAgo = computed(() => {
+  const s = store.status?.synced
+  if (!s) return null
+  const min = Math.round((Date.now() - s.at) / 60000)
+  return min < 1 ? 'just now' : `${min} min ago`
+})
+
+// The update banner's countdown to the restart.
+const clock = ref(Date.now())
+const ticker = setInterval(() => (clock.value = Date.now()), 250)
+onBeforeUnmount(() => clearInterval(ticker))
+const restartIn = computed(() => {
+  const at = store.update.restartAt
+  return store.update.state === 'restarting' && at ? Math.max(0, Math.ceil((at - clock.value) / 1000)) : 0
+})
 
 const hide = (): void => void bridge().invoke('panel:hide')
 const onKey = (e: KeyboardEvent): void => {
@@ -32,6 +52,8 @@ const onKey = (e: KeyboardEvent): void => {
 let offShowPet: (() => void) | null = null
 // The bubble clicked during an alert: the Timers tab, on the timers that alerted.
 let offShowTimers: (() => void) | null = null
+// Back from an update restart: the tab it was on.
+let offShowTab: (() => void) | null = null
 onMounted(() => {
   window.addEventListener('keydown', onKey)
   offShowPet = bridge().on('panel:showPet', (pet) => store.openPet(pet))
@@ -40,11 +62,16 @@ onMounted(() => {
     tab.value = 'timers'
     store.timerFocus = { ids, at: Date.now() }
   })
+  offShowTab = bridge().on('panel:showTab', (id) => {
+    const found = TABS.find((t) => t.id === id)
+    if (found) tab.value = found.id
+  })
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   offShowPet?.()
   offShowTimers?.()
+  offShowTab?.()
 })
 </script>
 
@@ -53,7 +80,10 @@ onBeforeUnmount(() => {
     <header class="flex items-center gap-2.5 border-b border-card px-3 py-2.5">
       <img src="/icon.png" alt="" class="size-7" draggable="false" />
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-semibold leading-tight">{{ DISPLAY_NAME }}</div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-sm font-semibold leading-tight">{{ DISPLAY_NAME }}</span>
+          <span v-if="syncedAgo" class="ml-auto truncate text-[11px] text-darkest">synced from the server {{ syncedAgo }}</span>
+        </div>
         <div class="flex items-center gap-1.5 text-xs text-darker">
           <StatusDot :status="store.status" />
           <span class="truncate">{{ statusText(store.status) }}</span>
@@ -74,12 +104,15 @@ onBeforeUnmount(() => {
     </header>
 
     <div
-      v-if="store.update.state === 'available' || store.update.state === 'downloading' || store.update.state === 'ready'"
+      v-if="['available', 'downloading', 'ready', 'restarting'].includes(store.update.state)"
       class="flex items-center gap-2 border-b border-card bg-accent-soft/60 px-3 py-2 text-xs"
     >
       <span class="min-w-0 flex-1 text-dark">
         <template v-if="store.update.state === 'available'">Version {{ store.update.version }} is available.</template>
-        <template v-else-if="store.update.state === 'downloading'">Downloading {{ store.update.version }}… {{ store.update.percent ?? 0 }}%</template>
+        <template v-else-if="store.update.state === 'downloading'">Update {{ store.update.version }} found. Downloading… {{ store.update.percent ?? 0 }}%</template>
+        <template v-else-if="store.update.state === 'restarting'">
+          Update {{ store.update.version }} found. Restarting to install it{{ restartIn ? ` in ${restartIn} s` : '' }}…
+        </template>
         <template v-else>Version {{ store.update.version }} is ready.</template>
       </span>
       <button
@@ -106,8 +139,10 @@ onBeforeUnmount(() => {
         :key="t.id"
         type="button"
         :class="[
-          '-mb-px border-b-2 px-3 pb-2 pt-1 text-sm font-medium transition',
+          '-mb-px whitespace-nowrap border-b-2 px-2.5 pb-2 pt-1 text-sm font-medium transition',
           tab === t.id ? 'border-accent text-default' : 'border-transparent text-darker hover:text-default',
+          // Settings sits apart, at the right end.
+          t.id === 'settings' && 'ml-auto',
         ]"
         @click="tab = t.id"
       >
@@ -121,6 +156,7 @@ onBeforeUnmount(() => {
       <CollectionTab v-else-if="tab === 'collection'" />
       <SessionTab v-else-if="tab === 'session'" />
       <TimersTab v-else-if="tab === 'timers'" />
+      <PvpLogTab v-else-if="tab === 'pvp'" />
       <SettingsTab v-else />
     </main>
   </div>

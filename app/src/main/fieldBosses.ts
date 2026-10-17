@@ -113,6 +113,8 @@ async function checkBanned(res: Response): Promise<boolean> {
 }
 
 function queueUpload(world: number, list: MapBoss[], seen: number): void {
+  // An empty list, or zone 0 (the game sends both, from instances): nothing worth sharing.
+  if (!list.length || !world) return
   pending = { world, list: list.slice(0, MAX_BOSSES), seen }
   if (uploadTimer) return
   const wait = Math.max(0, lastUpload + UPLOAD_EVERY_MS - Date.now())

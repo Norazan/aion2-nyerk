@@ -46,12 +46,13 @@ export type Schedule =
   /** Every `every` minutes, at `offset` minutes past each period (periods counted from 00:00 UTC). */
   | { kind: 'every'; every: number; offset: number }
   /** On these weekdays (0 = Sunday), at these times (minutes after midnight), in the server
-   *  region's time zone. */
-  | { kind: 'zoned'; days: number[]; times: number[] }
+   *  region's time zone, or in UTC where `zone` says so. */
+  | { kind: 'zoned'; days: number[]; times: number[]; zone?: 'UTC' }
   /** A field boss: when it respawns, from the map's field boss list (see FieldBossState). */
   | { kind: 'boss'; boss: number }
 
-/** A field boss as the map's list last said: up since `at`, or dead until `at` (ms). */
+/** A field boss as the map's list last said: up since `at` (0: not given, since the 2026-10-14
+ *  patch), or dead until `at` (ms). */
 export interface FieldBossState {
   up: boolean
   at: number
@@ -96,9 +97,9 @@ export interface TimerDef {
 export const defaultShown = (def: TimerDef): boolean => def.schedule.kind !== 'boss' || def.id === 'gartua'
 
 /**
- * Verteron's field bosses by their id in the map's list (`01 91`): named 2026-10-13 from
+ * The field bosses by their id in the map's list (`01 91`): Verteron's named 2026-10-13 from
  * fieldboss_list.pcap, the up ones by their position (each a questlog.gg marker) and the dead ones
- * by their times against the in-game list. Other zones' ids are not known yet.
+ * by their times against the in-game list.
  */
 export const FIELD_BOSSES: { boss: number; name: string }[] = [
   { boss: 101001, name: 'Neikel of the East' },
@@ -125,7 +126,47 @@ export const FIELD_BOSSES: { boss: number; name: string }[] = [
   { boss: 101022, name: 'Silent Dartan' },
   { boss: 101023, name: 'Soul Ruler Kashapa' },
   { boss: 101024, name: 'High Commander Lagta' },
+  // Altgard (2026-10-17, fieldboss_altgard_list.pcap, on an Asmodian character): the list sends
+  // all 24 even when the map shows fewer. The 13 up ones are named by position (each a questlog.gg
+  // marker), and they follow questlog's monster ids in order, as Verteron's do; the 11 dead ones
+  // are named by that order.
+  { boss: 111001, name: 'Melted Danar' },
+  { boss: 111002, name: 'Black Warrior Aed' },
+  { boss: 111003, name: 'Faithful Rajit' },
+  { boss: 111004, name: 'Berserker Vargor' },
+  { boss: 111005, name: 'Predator Garsan' },
+  { boss: 111006, name: 'Blood Warrior Lannar' },
+  { boss: 111007, name: 'Deceiver Trid' },
+  { boss: 111008, name: 'Blue Wave Kelpina' },
+  { boss: 111009, name: 'High Overseer Nutah' },
+  { boss: 111010, name: 'Advisor Resana' },
+  { boss: 111011, name: 'Special Operations Leader Linx' },
+  { boss: 111012, name: 'Desecrator Newbold' },
+  { boss: 111013, name: 'Specter Archon Axios' },
+  { boss: 111014, name: 'Addicted Hardirun' },
+  { boss: 111015, name: 'Executioner Barthien' },
+  { boss: 111016, name: 'Drakan Battalion Weapon Guruta' },
+  { boss: 111017, name: 'Veteran Shujakan' },
+  { boss: 111018, name: 'Visionary Karuka' },
+  { boss: 111019, name: 'Dark Shadow Vishwada' },
+  { boss: 111020, name: 'Sharp Shylak' },
+  { boss: 111021, name: 'Immortal Gartua' },
+  { boss: 111022, name: 'High Commander Lagta' },
+  { boss: 111023, name: 'Soul Ruler Kashapa' },
+  { boss: 111024, name: 'Silent Dartan' },
+  // Chaotic Lower Reshanta (2026-10-13, fieldboss_abyss.pcap): its list names 8 bosses, but only
+  // Argo respawns after a kill with a time given; the others (Kaira, Nahma, the Executors) come on
+  // schedules, timed above, and the list gives them no time.
+  { boss: 2001, name: 'Argo, the Spirit King' },
 ]
+
+/** The zones with field boss timers, by the zone id their boss ids start with. */
+export const FIELD_BOSS_ZONES: { world: number; name: string }[] = [
+  { world: 1010, name: 'Verteron' },
+  { world: 1110, name: 'Altgard' },
+  { world: 20, name: 'Lower Reshanta' },
+]
+export const bossZone = (boss: number): number => Math.floor(boss / 100)
 
 export const TIMERS: TimerDef[] = [
   {
@@ -170,7 +211,8 @@ export const TIMERS: TimerDef[] = [
     detail: 'Abyss boss in Lower Reshanta, at a random spot',
     schedule: { kind: 'zoned', days: EVERY_DAY, times: [hm(1), hm(5), hm(9), hm(13), hm(17), hm(21)] },
     lead: 10,
-    confirmed: false,
+    // The map's field boss list counted down to 21:00 New York (2026-10-13, fieldboss_abyss.pcap).
+    confirmed: true,
     defaultOn: false,
   },
   {
@@ -179,23 +221,29 @@ export const TIMERS: TimerDef[] = [
     detail: 'Elyos and Asmodians fight over the artifacts in Lower Reshanta',
     schedule: { kind: 'zoned', days: [1, 4, 6], times: [hm(21)] },
     lead: 10,
-    confirmed: true,
+    // In doubt: the map put the Executors, who come shortly after the siege, at 21:30 UTC, four
+    // hours before this. The map's Artifact Siege tab will settle it.
+    confirmed: false,
     defaultOn: false,
   },
   {
     id: 'siegeBosses',
-    name: 'Siege Bosses',
-    detail: 'The bosses, 30 minutes into the siege',
-    schedule: { kind: 'zoned', days: [1, 4, 6], times: [hm(21, 30)] },
+    name: 'Executors (siege bosses)',
+    detail: 'Executor Tamasa, Argo and Kaira in Lower Reshanta, shortly after the siege',
+    // The map counted down to Thursday 21:30 UTC (2026-10-13); Monday and Saturday, the other siege
+    // days, are assumed.
+    schedule: { kind: 'zoned', days: [1, 4, 6], times: [hm(21, 30)], zone: 'UTC' },
     lead: 5,
-    confirmed: true,
+    confirmed: false,
     defaultOn: false,
   },
   {
     id: 'nahma',
     name: 'Guardian Lord Nahma',
-    detail: 'Abyss field boss in Lower Reshanta',
-    schedule: { kind: 'zoned', days: [0, 5], times: [hm(21)] },
+    detail: 'Abyss field boss in Lower Reshanta (three of them)',
+    // 21:00 UTC: the map counted down to Friday 21:00 UTC for all three (2026-10-13), where an
+    // outside timer had said 21:00 New York.
+    schedule: { kind: 'zoned', days: [0, 5], times: [hm(21)], zone: 'UTC' },
     lead: 10,
     confirmed: true,
     defaultOn: false,
@@ -234,7 +282,7 @@ for (const b of FIELD_BOSSES) {
   TIMERS.push({
     id: `fb-${b.boss}`,
     name: b.name,
-    detail: 'Verteron field boss: open the map to update',
+    detail: `${FIELD_BOSS_ZONES.find((z) => z.world === bossZone(b.boss))?.name ?? 'Field'} field boss: open the map to update`,
     schedule: { kind: 'boss', boss: b.boss },
     lead: 5,
     confirmed: true,
@@ -275,7 +323,7 @@ export function nextStart(s: Schedule, from: number, region: Region = 'na-east',
     return Math.ceil((from - s.offset * MINUTE) / period) * period + s.offset * MINUTE
   }
   // Zoned: the next 8 days of the zone's calendar, each start at its own UTC offset.
-  const zone = zoneOf(region)
+  const zone = s.zone ?? zoneOf(region)
   const today = from + zoneOffset(zone, from)
   const midnight = Math.floor(today / DAY) * DAY
   const times = [...s.times].sort((a, b) => a - b)
@@ -335,3 +383,15 @@ export interface TimerAlert {
   id: TimerId
   at: number
 }
+
+/** The alert sounds a timer can play (made in the renderer, lib/chime.ts). */
+export const ALARM_SOUNDS = [
+  { id: 'chime', label: 'Chime' },
+  { id: 'bell', label: 'Bell' },
+  { id: 'beeps', label: 'Beeps' },
+  { id: 'fanfare', label: 'Fanfare' },
+  { id: 'marimba', label: 'Marimba' },
+] as const
+export type AlarmSound = (typeof ALARM_SOUNDS)[number]['id']
+export const DEFAULT_SOUND: AlarmSound = 'chime'
+export const isAlarmSound = (v: unknown): v is AlarmSound => ALARM_SOUNDS.some((s) => s.id === v)

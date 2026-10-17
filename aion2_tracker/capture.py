@@ -3,6 +3,11 @@
 The game flow is found the way the DPS meters find it: the server port whose payloads keep
 carrying the stream's record terminator. A per-flow sequence check drops retransmissions.
 
+The lock is on the server port, so a reconnect to another server on the same port (13328 when the
+game connects directly) carries on at once. Through a ping reducer's local proxy (ExitLag) the
+port is the proxy's, and a reconnect gets a new one: when the locked port stops carrying the
+terminator and another one carries it, the lock moves there.
+
 Live capture listens on every adapter that has an address at once: with a VPN or a ping reducer
 the game's traffic is only readable on the tunnel adapter, which is not Windows' default one.
 """
@@ -21,6 +26,12 @@ LOCK_HITS = 12  # signature-bearing packets ...
 LOCK_WINDOW_S = 3.0  # ... within this long, from one flow, lock onto it
 HOLD_LIMIT = 4 * 1024 * 1024  # bytes kept per flow while waiting for the lock
 REPORT_S = 30.0  # until the lock, how often the log says what each adapter is seeing
+# Once locked: the locked port has gone this long without the terminator (a live game stream
+# carries it every 0.2s at most) before another flow can take the lock over.
+RELOCK_QUIET_S = 3.0
+# Once locked, only flows this young (or carrying the terminator) are held for a re-lock, so the
+# other traffic of a long session is not kept.
+HOLD_YOUNG_S = 10.0
 
 
 class Reassembler:
@@ -95,37 +106,57 @@ class GameStream:
         # before the lock (a login's character and collection data) is not lost.
         self.held: dict[tuple[str, int, str, int], list[tuple]] = {}
         self.held_bytes: dict[tuple[str, int, str, int], int] = {}
+        self.first_seen: dict[tuple[str, int, str, int], float] = {}
+        self.last_sig: float | None = None  # the locked port's last terminator
 
     def segment(self, ts: float, src: str, sport: int, dst: str, dport: int, seq: int, data: bytes) -> None:
         if not data:
             return
         key = (src, sport, dst, dport)
-        if self.port is None:
-            self._hold(key, (ts, seq, data))
-            if not any(sig in data for sig in protocol.GAME_SIGNATURES):
-                return
-            times = [t for t in self.hits.get((src, sport), []) if ts - t <= LOCK_WINDOW_S] + [ts]
-            self.hits[(src, sport)] = times
-            if len(times) < LOCK_HITS:
-                return
-            self.port = sport
-            self.on_lock(src, sport)
-            held = {k: v for k, v in self.held.items() if k[1] == sport}
-            self.held.clear()
-            self.held_bytes.clear()
-            for k, segs in held.items():
-                for t, s, d in segs:
-                    self._feed(k, t, s, d)
-            return  # this segment was the last one held
-        if sport != self.port:
+        signed = any(sig in data for sig in protocol.GAME_SIGNATURES)
+        if self.port is not None and sport == self.port:
+            if signed:
+                self.last_sig = ts
+            self._feed(key, ts, seq, data)
             return
-        self._feed(key, ts, seq, data)
+        # Not (or no longer) the game's port: held, in case it turns out to be.
+        self._hold(key, (ts, seq, data), signed)
+        if not signed:
+            return
+        times = [t for t in self.hits.get((src, sport), []) if ts - t <= LOCK_WINDOW_S] + [ts]
+        self.hits[(src, sport)] = times
+        if len(times) < LOCK_HITS:
+            return
+        if self.port is not None and self.last_sig is not None and ts - self.last_sig < RELOCK_QUIET_S:
+            return  # the locked stream is still live: this one waits (held) until it goes quiet
+        self._lock(src, sport, ts)
 
-    def _hold(self, key, seg) -> None:
+    def _lock(self, src: str, sport: int, ts: float) -> None:
+        self.port = sport
+        self.last_sig = ts
+        self.on_lock(src, sport)
+        held = {k: v for k, v in self.held.items() if k[1] == sport}
+        self.flows.clear()  # a stream moved from: gone for good
+        self.hits.clear()
+        self.held.clear()
+        self.held_bytes.clear()
+        self.first_seen.clear()
+        for k, segs in held.items():
+            for t, s, d in segs:
+                self._feed(k, t, s, d)
+        # the segment that completed the lock was the last one held
+
+    def _hold(self, key, seg, signed: bool) -> None:
         if key not in self.held:
             if seg[2][:3] in (b"\x17\x03\x03", b"\x16\x03\x01", b"\x16\x03\x03"):
                 self.held_bytes[key] = HOLD_LIMIT  # TLS: never the game, never held
             self.held[key] = []
+            self.first_seen[key] = seg[0]
+        if (self.port is not None and not signed and not self.hits.get((key[0], key[1]))
+                and seg[0] - self.first_seen[key] > HOLD_YOUNG_S):
+            # Locked, and an old flow that has never looked like the game: let its bytes go.
+            self.held[key] = []
+            self.held_bytes[key] = HOLD_LIMIT
         if self.held_bytes.get(key, 0) + len(seg[2]) > HOLD_LIMIT:
             return
         self.held[key].append(seg)
@@ -201,16 +232,26 @@ def live(stream: GameStream, iface: str | None = None, save_to: str | None = Non
     sockets = {conf.L2listen(iface=iface, filter="tcp"): iface} if iface else _open(log)
     writer = PcapWriter(save_to, append=True, sync=True) if save_to else None
     counts = {name: 0 for name in sockets.values()}  # TCP packets per adapter since the last report
+    failures: set[str] = set()  # each kind of packet failure, logged once
 
     def handle(p):
-        if writer is not None:
-            writer.write(p)
-        counts[p.sniffed_on] += 1
-        for seg in _segments([p]):
-            locked = stream.port is not None
-            stream.segment(*seg)
-            if not locked and stream.port is not None:
-                log(f"[capture] the game stream is on {p.sniffed_on}")
+        # Scapy closes an adapter's socket for good when this raises (2026-10-15: one player name
+        # the output could not encode silently ended the capture), so a packet that fails is
+        # skipped, never fatal.
+        try:
+            if writer is not None:
+                writer.write(p)
+            counts[p.sniffed_on] += 1
+            for seg in _segments([p]):
+                before = stream.port
+                stream.segment(*seg)
+                if stream.port != before:
+                    moved = f" (moved from port {before})" if before is not None else ""
+                    log(f"[capture] the game stream is on {p.sniffed_on}{moved}")
+        except Exception as e:  # noqa: BLE001
+            if (kind := f"{type(e).__name__}: {e}") not in failures:
+                failures.add(kind)
+                log(f"[capture] skipped a packet that failed: {kind}")
 
     def report() -> None:
         seen = ", ".join(f"{name} {n}" for name, n in counts.items())

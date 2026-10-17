@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, toRaw } from 'vue'
 import { SETTINGS_DEFAULTS, type SettingKey, type Settings } from '@shared/settings.ts'
-import { MAX_LEVEL, NO_NEARBY, type Nearby, type Pet, type ShopStock, type SoulToast, type TrackerStatus } from '@shared/tracker.ts'
+import { MAX_LEVEL, NO_NEARBY, type Nearby, type Pet, type PvpKill, type ShopStock, type SoulToast, type TrackerStatus } from '@shared/tracker.ts'
 import { kinaPerHour, kinaSeries, NO_KINA, type KinaSession } from '@shared/kina.ts'
 import type { FieldBosses, TimerAlert, TimerId } from '@shared/timers.ts'
 import { initialUpdateStatus, type UpdateStatus } from '@shared/update.ts'
@@ -28,6 +28,8 @@ export const useApp = defineStore('app', () => {
   const alerting = ref<TimerAlert[]>([])
   /** The field bosses as the map last listed them (the Gartua timer). */
   const fieldBosses = ref<FieldBosses>({})
+  /** The PvP kill feed (main keeps it for the session). */
+  const pvp = ref<PvpKill[]>([])
   /** Timers to scroll to and highlight in the Timers tab (the bubble was clicked on their alert). */
   const timerFocus = ref<{ ids: TimerId[]; at: number } | null>(null)
   /** The Black Cloud Merchant's stock: the tabs opened, until their restock. */
@@ -120,6 +122,9 @@ export const useApp = defineStore('app', () => {
     api.on('tracker:nearby', (n) => (nearby.value = n))
     api.on('tracker:shop', (s) => (shop.value = s))
     api.on('tracker:fieldBosses', (b) => (fieldBosses.value = b))
+    api.on('tracker:pvp', (k) => (pvp.value = k))
+    // A new list each time, so watchers of the whole list (the kill feed HUD) see the change.
+    api.on('tracker:pvpKill', (k) => (pvp.value = [...pvp.value, k]))
     api.on('tracker:kina', (k) => {
       kina.value = k
       now.value = Date.now()
@@ -136,6 +141,7 @@ export const useApp = defineStore('app', () => {
     shop.value = t.shop
     kina.value = t.kina
     fieldBosses.value = t.fieldBosses
+    pvp.value = t.pvp
     alerting.value = await api.invoke('timers:get')
     update.value = await api.invoke('update:get')
     ready.value = true
@@ -170,7 +176,7 @@ export const useApp = defineStore('app', () => {
   }
 
   return {
-    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update,
+    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update,
     init, set, setHud, togglePin, openPet, hiddenPet,
   }
 })

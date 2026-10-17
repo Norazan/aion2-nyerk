@@ -392,20 +392,28 @@ def parse_self_teleport(pkt: bytes) -> tuple[float, float] | None:
 
 def parse_cast(pkt: bytes) -> tuple[int, float, float] | None:
     """`02 38` / `03 38 <caster varint> 00 <target varint> <skill u32> ... <f32 x> <f32 y>`: the
-    caster's position. Its offset moves with the varints, so the first plausible pair after the
-    skill is taken: game coordinates stay within +-500,000, and values under 1,000 are the other
-    fields of the record read as floats (a 0x42ED90C1 there reads as 118.7)."""
+    caster's position. Its offset moves with the varints, so the first plausible x, y, z after the
+    skill is taken: game coordinates stay within +-500,000, values under 1,000 are the other fields
+    of the record read as floats (a 0x42ED90C1 there reads as 118.7), and the height after them is
+    under MAX_HEIGHT. That last check matters: some `03 38` carry a field reading 1,413.8 just
+    before the position, which passed as an x and shifted the read by one (x 1414, y the real x, z
+    the real y): about 1 cast position in 11 was wrong that way (6,006 of 67,950 in gartua,
+    pvp_kills and gather_move), the real y as a height far too high."""
     if opcode(pkt) not in OP_CASTS:
         return None
     b = _body(pkt)
     actor, n = read_varint(b, 0)
     if not n:
         return None
-    for off in range(n + 6, min(len(b) - 8, n + 24)):
-        x, y = _f32(b, off), _f32(b, off + 4)
-        if 1000 < abs(x) < 500_000 and 1000 < abs(y) < 500_000:
+    for off in range(n + 6, min(len(b) - 12, n + 24)):
+        x, y, z = _f32(b, off), _f32(b, off + 4), _f32(b, off + 8)
+        if 1000 < abs(x) < 500_000 and 1000 < abs(y) < 500_000 and abs(z) < MAX_HEIGHT:
             return actor, x, y
     return None
+
+
+# Heights seen run 11,000 to 30,000; a coordinate read as a height is far above this.
+MAX_HEIGHT = 100_000
 
 
 OP_SELF = (0x33, 0x36)  # you, on every zone entry: entity, name and server among much else
@@ -415,6 +423,20 @@ OP_SELF = (0x33, 0x36)  # you, on every zone entry: entity, name and server amon
 class Character:
     name: str
     server: int
+    entity: int | None = None  # your entity id in this zone (it changes between zones)
+    guild: str | None = None  # your legion, None without one (or where it was not found)
+
+
+def _guild(b: bytes, pos: int) -> str | None:
+    """A length-prefixed legion name at `pos`: 1-32 bytes of printable UTF-8 (they can hold spaces)."""
+    n = b[pos] if pos < len(b) else 0
+    if not 1 <= n <= 32 or pos + 1 + n > len(b):
+        return None
+    try:
+        guild = b[pos + 1 : pos + 1 + n].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return guild if guild.isprintable() else None
 
 
 def _name(b: bytes, pos: int) -> str | None:
@@ -435,18 +457,137 @@ def parse_character(pkt: bytes) -> Character | None:
     Identified 2026-10-13 in login1, chat_login and zones1. Its name is the first length-prefixed
     one within a few bytes of the entity.
 
+    Your legion comes some 250 bytes on, as `00 00 00 00 <server u16> <len><legion>` (Cro's
+    "Eclipse" in all four logins, 2026-10-15): the first such run after the name.
+
     Not `39 8a <len> <name>`: it named you at login, but gartua.pcap has six of them naming other
     players around (online notices?), and 0.1.25 switched collections on them."""
     if opcode(pkt) != OP_SELF:
         return None
     _, vlen = read_varint(pkt, 0)
     b = pkt[vlen + 2 :]
-    _, pos = read_varint(b, 0)
+    entity, pos = read_varint(b, 0)
     for p in range(pos, min(pos + 12, len(b))):
         if (name := _name(b, p)) is not None:
             end = p + 1 + len(name.encode())
-            return Character(name, int.from_bytes(b[end : end + 2], "little")) if end + 2 <= len(b) else None
+            if end + 2 > len(b):
+                return None
+            server = int.from_bytes(b[end : end + 2], "little")
+            marker, guild, k = b"\x00\x00\x00\x00" + b[end : end + 2], None, end + 2
+            while guild is None and (k := b.find(marker, k + 1)) != -1:
+                guild = _guild(b, k + 6)
+            return Character(name, server, entity, guild)
     return None
+
+
+OP_KILL = (0x04, 0x8D)  # kill credit (and summon/spirit links, which carry no name)
+OP_PLAYER = (0x45, 0x36)  # a player in view
+
+
+@dataclass(frozen=True)
+class KillCredit:
+    victim: int  # the entity killed
+    killer: int  # the player credited (the killing blow)
+    server: int  # the killer's game server
+    name: str
+    guild: str | None
+    player_victim: bool  # the victim is a player, not a monster
+
+
+def parse_kill_credit(pkt: bytes) -> KillCredit | None:
+    """`04 8d <victim varint> <u32> <killer varint> <server u16> <len><name> <len><guild> ...
+    <last byte>`: who was credited with a kill around you, yours and other players'. The last byte
+    is 01 when the victim is a player (every PvP kill in pvp_kills.pcap, 2026-10-13), 00 for a
+    monster (Gartua's credit in gartua.pcap). Only the killing blow is credited. The same opcode
+    links summons to their owners with no name: those give None."""
+    if opcode(pkt) != OP_KILL:
+        return None
+    _, vlen = read_varint(pkt, 0)
+    b = pkt[vlen + 2 :]
+    victim, n = read_varint(b, 0)
+    if not n:
+        return None
+    pos = n + 4
+    killer, n = read_varint(b, pos)
+    if not n or pos + n + 3 > len(b):
+        return None
+    pos += n
+    server = int.from_bytes(b[pos : pos + 2], "little")
+    pos += 2
+    name = _name(b, pos)
+    if name is None or not 1000 <= server <= 9999:
+        return None
+    pos += 1 + len(name.encode())
+    return KillCredit(victim, killer, server, name, _guild(b, pos), b[-1] == 1)
+
+
+OP_LEGION = (0x33, 0x8A)  # a player's legion
+
+
+@dataclass(frozen=True)
+class Legion:
+    entity: int
+    id: int  # the legion's id on its server (Eclipse is 1)
+    server: int
+    name: str
+
+
+def parse_legion(pkt: bytes) -> Legion | None:
+    """`33 8a <entity varint> <legion id u48> <server u16> <len><name> ...`: the legion of a player
+    around you, yours included, sent again every few seconds (2026-10-15: Cro's "Eclipse", id 1,
+    in every capture, logins or not; other players' with other ids). The only way to your legion
+    between zone entries."""
+    if opcode(pkt) != OP_LEGION:
+        return None
+    _, vlen = read_varint(pkt, 0)
+    b = pkt[vlen + 2 :]
+    entity, n = read_varint(b, 0)
+    if not n or n + 9 > len(b):
+        return None
+    server = int.from_bytes(b[n + 6 : n + 8], "little")
+    name = _guild(b, n + 8)
+    if name is None or not 1000 <= server <= 9999:
+        return None
+    return Legion(entity, int.from_bytes(b[n : n + 6], "little"), server, name)
+
+
+@dataclass(frozen=True)
+class Player:
+    entity: int
+    name: str
+    server: int | None  # None where the record's layout is not the usual one
+    faction: int | None  # 1 or 2: the two sides (Kaisinel was 1 in pvp_kills.pcap)
+    guild: str | None = None  # their legion, right after the server (None without one)
+
+
+def parse_player(pkt: bytes) -> Player | None:
+    """`45 36 <entity varint> <4 bytes> 17 <len><name> <u32> <faction: 01 02 01 | 02 02 02> ...`:
+    a player coming into view (pvp_kills.pcap, 2026-10-13: every player later named in a kill
+    credit had one). The game server follows some 100-120 bytes on, as `<server u16> <2 bytes>
+    00 00 00 00 <server u16> <len><guild>` (Meep 1104, xKanekii 2104, matching the kill credits);
+    some records differ there (Tori's), and give no server."""
+    if opcode(pkt) != OP_PLAYER:
+        return None
+    _, vlen = read_varint(pkt, 0)
+    b = pkt[vlen + 2 :]
+    entity, pos = read_varint(b, 0)
+    if not pos:
+        return None
+    for p in range(pos, min(pos + 12, len(b))):
+        if (name := _name(b, p)) is not None:
+            end = p + 1 + len(name.encode())
+            break
+    else:
+        return None
+    side = b[end + 4 : end + 7]
+    faction = 1 if side == b"\x01\x02\x01" else 2 if side == b"\x02\x02\x02" else None
+    server = guild = None
+    for k in range(end + 40, min(end + 200, len(b) - 10)):
+        v = int.from_bytes(b[k : k + 2], "little")
+        if 1000 <= v <= 9999 and b[k + 4 : k + 8] == b"\x00\x00\x00\x00" and int.from_bytes(b[k + 8 : k + 10], "little") == v:
+            server, guild = v, _guild(b, k + 10)
+            break
+    return Player(entity, name, server, faction, guild)
 
 
 OP_ITEM = (0x1B, 0x56)  # an inventory stack's new count; Kina is one of them
@@ -475,7 +616,7 @@ OP_FIELD_BOSSES = (0x01, 0x91)  # the map's field boss list for your zone, every
 class FieldBoss:
     id: int  # the list's own id: 101001-101024 in Verteron (zone 1010 * 100 + n)
     up: bool
-    at_ms: int  # up: when it spawned; dead: when it respawns
+    at_ms: int  # up: when it spawned (0: not given, since the 2026-10-14 patch); dead: when it respawns
     position: tuple[float, float, float] | None  # where it is, while up
 
 
@@ -515,6 +656,18 @@ def parse_field_bosses(pkt: bytes) -> FieldBosses | None:
                 return None
             xyz = struct.unpack_from("<3f", b, pos)
             pos += 12
+        # No time: 8 zero bytes, sometimes after the odd byte (ff or 00), taken where what follows
+        # reads as the next boss (or the end). A boss on a schedule (Lower Reshanta's Kaira, Nahma,
+        # Executors) is left out: the game counts those down itself. An up boss is up, its spawn
+        # time unknown: since the 2026-10-14 patch the list gives up bosses none
+        # (fieldboss_after_patch.pcap: all 18 up ones, the 6 dead ones still with their respawns).
+        skip = next((k for k in (0, 1) if b[pos + k : pos + k + 8] == bytes(8)
+                     and _boss_starts(b, pos + k + 8, world)), None)
+        if skip is not None:
+            pos += skip + 8
+            if up:
+                out.append(FieldBoss(bid, True, 0, xyz))
+            continue
         # Then the time, sometimes after a byte or so more (unknown): where an ms timestamp fits.
         for k in range(5):
             if pos + k + 8 <= len(b) and _plausible_ms(b, pos + k):
@@ -525,6 +678,16 @@ def parse_field_bosses(pkt: bytes) -> FieldBosses | None:
         out.append(FieldBoss(bid, up, int.from_bytes(b[pos : pos + 8], "little"), xyz))
         pos += 8
     return FieldBosses(world, out)
+
+
+def _boss_starts(b: bytes, pos: int, world: int) -> bool:
+    """The list's next boss starts at `pos` (a flag, then an id of this zone), or it ends there."""
+    if pos >= len(b) - 3:
+        return True
+    if b[pos] not in (0, 1):
+        return False
+    bid, n = read_varint(b, pos + 1)
+    return bool(n) and bid // 100 == world
 
 
 def _plausible_ms(b: bytes, pos: int) -> bool:

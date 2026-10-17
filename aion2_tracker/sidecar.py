@@ -24,6 +24,8 @@ stdout, one JSON object per line (nothing else is ever written there):
     {"type": "pet", "pet": {...}}                       after an edit
     {"type": "combat"}                                  you killed something (at most every 5 s)
     {"type": "kina", "balance": 3769926}                your Kina, whenever it changes
+    {"type": "pvpKill", "killer": {"name", "server", "guild"}, "victim": {"name", "server"} | null,
+     "mine": false, "died": false}                      a player killed a player around you
     {"type": "shop", "tab": 104, "nextAt": ms | null, "items": [{"slot", "item", "quantity",
      "currency", "base", "price"}]}                     a Black Cloud Merchant tab was opened
     {"type": "fieldBosses", "world": 1010, "bosses": [{"id": 101021, "up": false, "at": ms}]}
@@ -38,6 +40,11 @@ stdin, one JSON object per line:
     {"cmd": "name", "pet": 1006, "name": "Meadow Sparkie"} · {"cmd": "quit"}
     {"cmd": "resetSession"}             start the session's soul counts again; answered with a
                                         snapshot
+    {"cmd": "dumpSession"}              every character's session counts, answered with
+                                        {"type": "session", "sessions": {"Cro": {"1006": 3}}}
+                                        (the app keeps them across an update restart)
+    {"cmd": "restoreSession", "sessions": {...}, "world": 1010 | null, "position": [x, y] | null}
+                                        put them back after the restart; answered with a snapshot
     {"cmd": "capture", "on": false}     stop capturing (the game closed) or start again. Paused,
                                         the helper only serves the collection; a session's counts
                                         carry on across a pause. --paused starts it that way.
@@ -69,6 +76,11 @@ def main() -> None:
     ap.add_argument("--paused", action="store_true", help="start without capturing (the game is closed)")
     a = ap.parse_args()
 
+    # UTF-8 both ways, whatever the environment: the packaged helper ignores the app's
+    # PYTHONIOENCODING and would write cp1252, which cannot encode names like "ツ".
+    for s in (sys.stdout, sys.stderr):
+        if hasattr(s, "reconfigure"):
+            s.reconfigure(encoding="utf-8", errors="replace")
     # stdout belongs to the protocol. Anything printed by accident (a library, a stray print) goes
     # to stderr instead of corrupting it.
     out_stream, sys.stdout = sys.stdout, sys.stderr
@@ -160,6 +172,12 @@ def main() -> None:
             elif cmd == "resetSession":
                 tracker.reset_session()
                 emit({"type": "snapshot", "pets": tracker.snapshot()})
+            elif cmd == "dumpSession":
+                emit({"type": "session", "sessions": tracker.session_counts()})
+            elif cmd == "restoreSession":
+                tracker.restore_sessions(msg.get("sessions") or {}, msg.get("world"), msg.get("position"))
+                emit({"type": "snapshot", "pets": tracker.snapshot()})
+                emit({"type": "nearby", **tracker.nearby()})
             elif cmd == "name":
                 emit({"type": "pet", "pet": tracker.set_name(int(msg["pet"]), str(msg["name"]))})
             elif cmd == "capture":

@@ -3,7 +3,17 @@
  * file or a renderer bug can never store something the app then trips over.
  */
 
-import { defaultShown, leadChoices, REGIONS, TIMERS, type Region, type TimerId } from './timers.ts'
+import {
+  DEFAULT_SOUND,
+  defaultShown,
+  isAlarmSound,
+  leadChoices,
+  REGIONS,
+  TIMERS,
+  type AlarmSound,
+  type Region,
+  type TimerId,
+} from './timers.ts'
 
 export interface Point {
   x: number
@@ -50,6 +60,9 @@ export interface Settings {
   /** Where the Black Cloud Merchant window sits (top-left, screen DIPs); null = top centre. */
   merchantWindow: Point | null
 
+  /** The kill feed window (PvP Log → Open HUD): open, and where (null = top right). */
+  killFeed: { open: boolean; position: Point | null }
+
   /** Hide every overlay window from screenshots, OBS and Discord (WDA_EXCLUDEFROMCAPTURE). */
   hideFromCapture: boolean
 
@@ -68,6 +81,8 @@ export interface Settings {
     enabled: Record<TimerId, boolean>
     /** Minutes before each start to alert. */
     lead: Record<TimerId, number>
+    /** The sound each timer's alert plays. */
+    sounds: Record<TimerId, AlarmSound>
     sound: boolean
     /** 0..1 */
     volume: number
@@ -118,6 +133,7 @@ export const SETTINGS_DEFAULTS: Settings = {
     kina: true,
   },
   merchantWindow: null,
+  killFeed: { open: false, position: null },
   hideFromCapture: false,
   faction: 'elyos',
   playerLevel: null,
@@ -127,6 +143,7 @@ export const SETTINGS_DEFAULTS: Settings = {
     region: 'na-east',
     enabled: Object.fromEntries(TIMERS.map((t) => [t.id, t.defaultOn])) as Record<TimerId, boolean>,
     lead: Object.fromEntries(TIMERS.map((t) => [t.id, t.lead])) as Record<TimerId, number>,
+    sounds: Object.fromEntries(TIMERS.map((t) => [t.id, DEFAULT_SOUND])) as Record<TimerId, AlarmSound>,
     sound: true,
     volume: 0.5,
     shake: true,
@@ -156,6 +173,10 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
     case 'bubble':
     case 'merchantWindow':
       return point(value) as Settings[K]
+    case 'killFeed': {
+      const v = (value ?? {}) as Partial<Settings['killFeed']>
+      return { open: bool(v.open, d.killFeed.open), position: point(v.position) } as Settings[K]
+    }
     case 'panel': {
       const v = (value ?? {}) as Partial<Settings['panel']>
       return { width: num(v.width, 340, 1200, d.panel.width), height: num(v.height, 360, 1400, d.panel.height) } as Settings[K]
@@ -190,6 +211,7 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
       const v = (value ?? {}) as Partial<Settings['timers']>
       const on = (v.enabled ?? {}) as Partial<Record<TimerId, unknown>>
       const lead = (v.lead ?? {}) as Partial<Record<TimerId, unknown>>
+      const sounds = (v.sounds ?? {}) as Partial<Record<TimerId, unknown>>
       return {
         region: REGIONS.some((r) => r.id === v.region) ? v.region : d.timers.region,
         enabled: Object.fromEntries(TIMERS.map((t) => [t.id, bool(on[t.id], t.defaultOn)])) as Record<TimerId, boolean>,
@@ -197,6 +219,9 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
         lead: Object.fromEntries(
           TIMERS.map((t) => [t.id, leadChoices(t).includes(lead[t.id] as number) ? (lead[t.id] as number) : t.lead]),
         ) as Record<TimerId, number>,
+        sounds: Object.fromEntries(
+          TIMERS.map((t) => [t.id, isAlarmSound(sounds[t.id]) ? sounds[t.id] : DEFAULT_SOUND]),
+        ) as Record<TimerId, AlarmSound>,
         sound: bool(v.sound, d.timers.sound),
         volume: num(v.volume, 0, 1, d.timers.volume),
         shake: bool(v.shake, d.timers.shake),

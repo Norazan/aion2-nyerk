@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The game's periodic events and the field bosses: each one's next start in your local time and
 // how long until it, with a switch for its alert (and, when on, how early). Only the timers chosen
-// in "Choose timers" are listed, and only those alert: the events and Gartua at first. Alerts chime
-// and shake the bubble (the settings below); a click on the bubble dismisses them and shows them
+// in "Choose timers" are listed, and only those alert: the events and Gartua at first. Alerts play
+// the timer's own sound (picked in its row) and shake the bubble (the settings below); a click on the bubble dismisses them and shows them
 // here. Times not yet checked against the game are marked unconfirmed.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Button from '@/components/Button.vue'
@@ -11,7 +11,19 @@ import Slider from '@/components/Slider.vue'
 import Toggle from '@/components/Toggle.vue'
 import { playChime } from '@/lib/chime.ts'
 import { useApp } from '@/stores/app.ts'
-import { leadChoices, nextStart, REGIONS, TIMERS, type Region, type TimerDef, type TimerId } from '@shared/timers.ts'
+import {
+  ALARM_SOUNDS,
+  bossZone,
+  FIELD_BOSS_ZONES,
+  leadChoices,
+  nextStart,
+  REGIONS,
+  TIMERS,
+  type AlarmSound,
+  type Region,
+  type TimerDef,
+  type TimerId,
+} from '@shared/timers.ts'
 
 const store = useApp()
 const cfg = computed(() => store.settings.timers)
@@ -23,6 +35,7 @@ onBeforeUnmount(() => clearInterval(ticker))
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 const day = (ms: number): string => new Date(ms).toLocaleDateString([], { weekday: 'short' })
 const isBoss = (def: TimerDef): boolean => def.schedule.kind === 'boss'
+const inZone = (def: TimerDef, world: number): boolean => def.schedule.kind === 'boss' && bossZone(def.schedule.boss) === world
 /** A field boss's portrait (public/bosses, from scripts/fetch-boss-icons.mjs). */
 const portrait = (def: TimerDef): string | null => (def.schedule.kind === 'boss' ? `bosses/${def.schedule.boss}.webp` : null)
 
@@ -33,7 +46,7 @@ function when(def: TimerDef): string {
     const b = store.fieldBosses[s.boss]
     if (!b) return 'Open the map to update'
     const via = b.source === 'shared' ? ' · shared' : ''
-    if (b.up) return `Up since ${time(b.at)}${via}`
+    if (b.up) return b.at ? `Up since ${time(b.at)}${via}` : `Up${via}`
     return b.at < now.value ? `Due since ${time(b.at)}${via}` : `Respawns ${day(b.at)} ${time(b.at)}${via}`
   }
   if (s.kind === 'every') {
@@ -95,7 +108,7 @@ function bossNote(def: TimerDef): { sort: number; at: string; left: string } | n
   if (s.kind !== 'boss') return null
   const b = store.fieldBosses[s.boss]
   if (!b) return { sort: Number.POSITIVE_INFINITY, at: '—', left: 'not seen' }
-  if (b.up) return { sort: now.value, at: 'Up', left: `since ${time(b.at)}` }
+  if (b.up) return { sort: now.value, at: 'Up', left: b.at ? `since ${time(b.at)}` : 'now' }
   if (b.at < now.value - 2 * 60_000) return { sort: now.value, at: 'Due', left: `since ${time(b.at)}` }
   return null
 }
@@ -104,7 +117,7 @@ function bossNote(def: TimerDef): { sort: number; at: string; left: string } | n
 const groups = computed(() =>
   [
     { title: 'Events', rows: rows.value.filter((r) => !isBoss(r.def)) },
-    { title: 'Field bosses · Verteron', rows: rows.value.filter((r) => isBoss(r.def)) },
+    ...FIELD_BOSS_ZONES.map((z) => ({ title: `Field bosses · ${z.name}`, rows: rows.value.filter((r) => inZone(r.def, z.world)) })),
   ].filter((g) => g.rows.length),
 )
 
@@ -141,6 +154,15 @@ function toggle(id: TimerId, on: boolean): void {
 function setLead(id: TimerId, minutes: number): void {
   set({ lead: { ...cfg.value.lead, [id]: minutes } })
 }
+const soundLabel = (id: AlarmSound | undefined): string => ALARM_SOUNDS.find((o) => o.id === id)?.label ?? 'Chime'
+/** A field boss whose time came from other players' maps. */
+const shared = (def: TimerDef): boolean =>
+  def.schedule.kind === 'boss' && store.fieldBosses[def.schedule.boss]?.source === 'shared'
+/** A timer's alert sound: picked, and played once to hear it. */
+function setSound(id: TimerId, sound: AlarmSound): void {
+  set({ sounds: { ...cfg.value.sounds, [id]: sound } })
+  playChime(cfg.value.volume, sound)
+}
 /** "at start", "5 min", "1 h": how early an alert comes. */
 const leadLabel = (m: number): string => (m === 0 ? 'at start' : m < 60 ? `${m} min` : `${m / 60} h`)
 const pct = (v: number): string => `${Math.round(v * 100)}%`
@@ -148,7 +170,10 @@ const pct = (v: number): string => `${Math.round(v * 100)}%`
 // ---- Choose timers: which are listed (and so can alert) ---------------------------------------
 const pickGroups = computed(() => [
   { title: 'Events', defs: TIMERS.filter((d) => !isBoss(d)) },
-  { title: 'Field bosses · Verteron', defs: TIMERS.filter(isBoss).sort((a, b) => a.name.localeCompare(b.name)) },
+  ...FIELD_BOSS_ZONES.map((z) => ({
+    title: `Field bosses · ${z.name}`,
+    defs: TIMERS.filter((d) => inZone(d, z.world)).sort((a, b) => a.name.localeCompare(b.name)),
+  })),
 ])
 function show(ids: TimerId[], on: boolean): void {
   set({ shown: { ...cfg.value.shown, ...Object.fromEntries(ids.map((id) => [id, on])) } })
@@ -194,30 +219,54 @@ const shownCount = computed(() => TIMERS.filter((d) => shown(d.id)).length)
                 <span v-if="alerting.has(r.def.id)" class="size-1.5 shrink-0 animate-pulse rounded-full bg-yellow" />
                 <span class="truncate text-sm font-medium">{{ r.def.name }}</span>
               </div>
-              <div class="truncate text-[11px] text-darker">
-                <span v-if="!r.def.confirmed" class="text-yellow">unconfirmed · </span>{{ when(r.def) }}
+              <!-- How long until it (the schedule itself is in the row's tooltip). -->
+              <div :class="['truncate text-[11px] tabular-nums', alerting.has(r.def.id) ? 'text-yellow' : 'text-darker']">
+                <span v-if="!r.def.confirmed" class="text-yellow">unconfirmed · </span>{{ r.left }}{{ shared(r.def) ? ' · shared' : '' }}
               </div>
             </div>
-            <div class="shrink-0 whitespace-nowrap text-right">
-              <div :class="['text-sm tabular-nums', r.at === 'Up' && 'text-green']">{{ r.at }}</div>
-              <div :class="['text-[11px] tabular-nums', alerting.has(r.def.id) ? 'text-yellow' : 'text-darker']">{{ r.left }}</div>
-            </div>
-            <!-- The alert: on or off, and (when on) how early. -->
-            <div class="flex w-[68px] shrink-0 flex-col items-end gap-1">
-              <Toggle
-                :model-value="cfg.enabled[r.def.id] ?? false"
-                :title="cfg.enabled[r.def.id] ? 'Alert on' : 'Alert off'"
-                @update:model-value="toggle(r.def.id, $event)"
-              />
-              <select
-                v-if="cfg.enabled[r.def.id]"
-                :value="cfg.lead[r.def.id]"
-                class="h-6 w-full rounded-md border border-light bg-default px-1 text-[11px]"
-                title="How early to alert"
-                @change="setLead(r.def.id, Number(($event.target as HTMLSelectElement).value))"
-              >
-                <option v-for="m in leadChoices(r.def)" :key="m" :value="m">{{ leadLabel(m) }}</option>
-              </select>
+            <!-- When it starts, by the alert's switch; when on, how early and (behind the speaker) with
+                 which sound, under them. -->
+            <div class="flex shrink-0 flex-col items-end gap-1">
+              <div class="flex items-center gap-2.5">
+                <span :class="['whitespace-nowrap text-sm tabular-nums', r.at === 'Up' && 'text-green']">{{ r.at }}</span>
+                <Toggle
+                  :model-value="cfg.enabled[r.def.id] ?? false"
+                  :title="cfg.enabled[r.def.id] ? 'Alert on' : 'Alert off'"
+                  @update:model-value="toggle(r.def.id, $event)"
+                />
+              </div>
+              <div v-if="cfg.enabled[r.def.id]" class="flex items-center gap-1">
+                <select
+                  :value="cfg.lead[r.def.id]"
+                  class="h-6 w-[66px] rounded-md border border-light bg-default px-1 text-[11px]"
+                  title="How early to alert"
+                  @change="setLead(r.def.id, Number(($event.target as HTMLSelectElement).value))"
+                >
+                  <option v-for="m in leadChoices(r.def)" :key="m" :value="m">{{ leadLabel(m) }}</option>
+                </select>
+                <!-- A native menu over the speaker icon: the icon shows, the menu opens on a click. -->
+                <label
+                  :class="[
+                    'relative flex size-6 items-center justify-center rounded-md border border-light bg-default text-darker',
+                    cfg.sound ? 'hover:text-default' : 'opacity-50',
+                  ]"
+                  :title="cfg.sound ? `Sound: ${soundLabel(cfg.sounds[r.def.id])}` : 'Sound is off (below)'"
+                >
+                  <svg viewBox="0 0 16 16" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="M2.5 6h2l3-2.5v9L4.5 10h-2z" stroke-linejoin="round" />
+                    <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6 6 0 0 1 0 9" stroke-linecap="round" />
+                  </svg>
+                  <select
+                    :value="cfg.sounds[r.def.id]"
+                    :disabled="!cfg.sound"
+                    aria-label="Alert sound"
+                    class="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
+                    @change="setSound(r.def.id, ($event.target as HTMLSelectElement).value as AlarmSound)"
+                  >
+                    <option v-for="o in ALARM_SOUNDS" :key="o.id" :value="o.id">{{ o.label }}</option>
+                  </select>
+                </label>
+              </div>
             </div>
           </li>
         </TransitionGroup>
@@ -276,7 +325,7 @@ const shownCount = computed(() => TIMERS.filter((d) => shown(d.id)).length)
             <option v-for="r in REGIONS" :key="r.id" :value="r.id">{{ r.label }}{{ r.confirmed ? '' : ' (unconfirmed)' }}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Sound" hint="A soft chime when an alert starts.">
+        <SettingRow label="Sound" hint="When an alert starts; each timer picks its own sound in its row.">
           <Toggle :model-value="cfg.sound" @update:model-value="set({ sound: $event })" />
         </SettingRow>
         <SettingRow label="Volume">
