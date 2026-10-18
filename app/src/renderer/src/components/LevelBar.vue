@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// Souls towards the 105 the guides give for the cap, with the level beside it. The bar is a guide
-// only: the level shown is the server's (`00 90`).
+// Souls towards the next level, the same count the text beside it shows (12/25 fills half), as the
+// Pets menu's bar does. Full once capped. The level shown is the server's (`00 90`).
 import { computed } from 'vue'
-import { capProgress, MAX_LEVEL, type Pet } from '@shared/tracker.ts'
+import { levelProgress, MAX_LEVEL, type Pet } from '@shared/tracker.ts'
 
 const props = defineProps<{ pet: Pet; thin?: boolean }>()
-const pct = computed(() => Math.round(capProgress(props.pet) * 100))
+const pct = computed(() => Math.round(levelProgress(props.pet) * 100))
 const maxed = computed(() => props.pet.level >= MAX_LEVEL)
 </script>
 

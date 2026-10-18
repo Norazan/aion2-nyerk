@@ -533,6 +533,12 @@ export function closeOverlays(): void {
  * a new window always comes back. Returns which window it was.
  */
 export function rebuildWindow(win: BrowserWindow): string | null {
+  if (win === addonHost) {
+    win.destroy()
+    addonHost = null
+    setAddonHost(true)
+    return 'addons'
+  }
   if (win === bubble) {
     win.destroy()
     bubble = null
@@ -568,4 +574,37 @@ export function rebuildWindow(win: BrowserWindow): string | null {
     return 'panel'
   }
   return null
+}
+
+// ---- addon host -----------------------------------------------------------------------------
+
+/** Never shown: the addons' background scripts, each in a sandboxed frame (pages/AddonHostPage). */
+let addonHost: BrowserWindow | null = null
+
+/** Open the addon host while some addon has a background script switched on; close it otherwise. */
+export function setAddonHost(needed: boolean): void {
+  if (needed && !alive(addonHost)) {
+    addonHost = new BrowserWindow({
+      show: false,
+      skipTaskbar: true,
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'),
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        // Hidden for good: without this its timers would slow to once a minute.
+        backgroundThrottling: false,
+        autoplayPolicy: 'no-user-gesture-required',
+      },
+    })
+    addonHost.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+    addonHost.webContents.on('will-navigate', (event) => event.preventDefault())
+    load(addonHost, 'addons')
+  } else if (!needed && alive(addonHost)) {
+    addonHost.destroy()
+    addonHost = null
+  }
 }

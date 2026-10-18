@@ -1,5 +1,6 @@
 /** Every invoke handler, typed against the contract in shared/ipc.ts. */
 import { app, ipcMain, shell } from 'electron'
+import { addons } from './addons.ts'
 import { settings } from './settings.ts'
 import { timers } from './timers.ts'
 import { logPath, tracker } from './tracker.ts'
@@ -31,6 +32,7 @@ import {
 import type { InvokeArgs, InvokeChannel, InvokeResult } from '../shared/ipc.ts'
 import type { SettingKey } from '../shared/settings.ts'
 import { SETTINGS_DEFAULTS } from '../shared/settings.ts'
+import { isAddonId } from '../shared/addons.ts'
 
 function handle<C extends InvokeChannel>(
   channel: C,
@@ -84,7 +86,8 @@ export function registerIpc(): void {
   handle('panel:hide', () => hidePanel())
   handle('panel:setExpanded', (expanded) => setPanelExpanded(Boolean(expanded)))
   handle('panel:tab', (tab) => {
-    if (typeof tab === 'string' && /^[a-z]{1,20}$/.test(tab)) setPanelTab(tab)
+    // An app tab, or an addon's (`addon:<id>`).
+    if (typeof tab === 'string' && /^(?:[a-z]{1,20}|addon:[a-z0-9][a-z0-9-]{0,39})$/.test(tab)) setPanelTab(tab)
   })
 
   handle('hud:setEditing', (editing) => setHudEditing(Boolean(editing)))
@@ -122,5 +125,19 @@ export function registerIpc(): void {
   })
   handle('panel:showPet', (pet) => {
     if (Number.isInteger(pet)) showPetInPanel(pet)
+  })
+
+  handle('addons:get', () => addons.status())
+  handle('addons:openFolder', () => addons.openFolder())
+  handle('addons:reload', () => addons.reload())
+  handle('addons:setEnabled', (id, enabled) => {
+    if (isAddonId(id)) addons.setEnabled(id, Boolean(enabled))
+  })
+  handle('addons:setSetting', (id, key, value) => {
+    if (isAddonId(id) && typeof key === 'string') addons.setSetting(id, key, value)
+  })
+  handle('addons:call', (id, method, args) => {
+    if (!isAddonId(id) || typeof method !== 'string') throw new Error('bad addon call')
+    return addons.call(id, method, Array.isArray(args) ? args : [])
   })
 }

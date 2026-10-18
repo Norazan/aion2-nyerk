@@ -54,6 +54,8 @@ export interface Nearby {
   position: [number, number] | null
   /** When the position last changed (ms since epoch, stamped by main); null while unknown. */
   positionAt: number | null
+  /** Your height (game units, 100 to a metre) where the position's record gave it. */
+  height?: number | null
   monsters: { npc: number; count: number }[]
 }
 
@@ -99,19 +101,19 @@ export const MAX_LEVEL = 3
  */
 export const LEVEL_NEED = [5, 25, 75] as const
 
-/** Souls all the levels below this one took: 0, 5, 30. */
-const LEVEL_BEFORE = [0, 5, 30] as const
-
 /** The souls the current level needs, or null once capped. */
 export function nextLevelSouls(pet: Pick<Pet, 'level' | 'souls'>): number | null {
   return pet.level >= MAX_LEVEL ? null : (LEVEL_NEED[pet.level] ?? null)
 }
 
-/** 0..1 of the way to the cap: the 105 souls of every level together. */
-export function capProgress(pet: Pick<Pet, 'souls' | 'level'>): number {
-  if (pet.level >= MAX_LEVEL) return 1
-  const done = (LEVEL_BEFORE[pet.level] ?? 0) + pet.souls
-  return Math.min(1, done / 105)
+/**
+ * 0..1 of the way through the current level, like the Pets menu's bar: 12/25 is about half. Full
+ * once capped. (It was the way to the cap, all 105 souls together, which looked wrong beside the
+ * per-level count: GitHub issue #3.)
+ */
+export function levelProgress(pet: Pick<Pet, 'souls' | 'level'>): number {
+  const need = nextLevelSouls(pet)
+  return need === null ? 1 : Math.min(1, pet.souls / need)
 }
 
 /** One item in the Black Cloud Merchant's stock, as the tab's `91 56` record gives it. */

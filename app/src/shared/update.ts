@@ -25,6 +25,7 @@ export interface UpdateStatus {
   version: string | null
   kind: UpdateKind | null
   percent: number | null
+  /** The last failure in a short line with its code (ENOENT, HTTP 404…); the full error is in tracker.log. */
   error: string | null
   checkedAt: number | null
   /** When the restart happens (state restarting). */

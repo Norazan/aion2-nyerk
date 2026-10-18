@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // A label and its hint on the left, the control on the right; a warning in red under the label.
+// Text breaks anywhere, so a long path or URL in an error wraps instead of running under the control.
 defineProps<{ label: string; hint?: string; warning?: string }>()
 </script>
 
 <template>
   <div class="flex items-center justify-between gap-4 py-2">
-    <div class="min-w-0">
+    <div class="min-w-0 [overflow-wrap:anywhere]">
       <div class="text-sm">{{ label }}</div>
       <div v-if="hint" class="text-xs leading-snug text-darker">{{ hint }}</div>
       <div v-if="warning" class="text-xs leading-snug text-danger">{{ warning }}</div>

@@ -9,6 +9,7 @@ import { MAX_LEVEL, NO_NEARBY, type Nearby, type Pet, type PvpKill, type ShopSto
 import { kinaPerHour, kinaSeries, NO_KINA, type KinaSession } from '@shared/kina.ts'
 import type { FieldBosses, TimerAlert, TimerId } from '@shared/timers.ts'
 import { initialUpdateStatus, type UpdateStatus } from '@shared/update.ts'
+import type { AddonsStatus } from '@shared/addons.ts'
 import { bridge } from '@/lib/bridge.ts'
 import type { Genus } from '@/lib/petDb.ts'
 import type { Continent } from '@/lib/spawns.ts'
@@ -35,6 +36,8 @@ export const useApp = defineStore('app', () => {
   /** The Black Cloud Merchant's stock: the tabs opened, until their restock. */
   const shop = ref<ShopStock[]>([])
   const update = ref<UpdateStatus>(initialUpdateStatus(''))
+  /** The addons folder and what is in it (main/addons.ts). */
+  const addons = ref<AddonsStatus | null>(null)
   /** This session's Kina; the rate is redrawn every few seconds as active time runs on. */
   const kina = ref<KinaSession>(NO_KINA)
   const now = ref(Date.now())
@@ -133,6 +136,7 @@ export const useApp = defineStore('app', () => {
     api.on('update:status', (u) => (update.value = u))
     api.on('hud:editing', (e) => (hudEditing.value = e))
     api.on('panel:visible', (v) => (panelVisible.value = v))
+    api.on('addons:changed', (a) => (addons.value = a))
     const [s, t] = await Promise.all([api.invoke('settings:all'), api.invoke('tracker:get')])
     settings.value = s
     status.value = t.status
@@ -144,6 +148,7 @@ export const useApp = defineStore('app', () => {
     pvp.value = t.pvp
     alerting.value = await api.invoke('timers:get')
     update.value = await api.invoke('update:get')
+    addons.value = await api.invoke('addons:get')
     ready.value = true
   }
 
@@ -176,7 +181,7 @@ export const useApp = defineStore('app', () => {
   }
 
   return {
-    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update,
+    settings, status, pets, toasts, fighting, collectionView, shop, kina, kinaRate, kinaTimeline, alerting, timerFocus, fieldBosses, pvp, hudEditing, panelVisible, ready, sessionSouls, recentPets, openPetId, nearby, update, addons,
     init, set, setHud, togglePin, openPet, hiddenPet,
   }
 })

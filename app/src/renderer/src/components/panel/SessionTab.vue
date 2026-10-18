@@ -105,7 +105,7 @@ const lastPacket = computed(() => {
       <div class="flex items-center gap-2 font-medium">
         <StatusDot :status="store.status" /> {{ statusText(store.status) }}
       </div>
-      <div v-if="store.status?.detail" class="break-words text-darker">{{ store.status.detail }}</div>
+      <div v-if="store.status?.detail" class="text-darker [overflow-wrap:anywhere]">{{ store.status.detail }}</div>
       <div class="text-darker">Last game packet: {{ lastPacket }}</div>
       <div v-if="store.status?.replay" class="text-yellow">Replaying a saved capture (A2T_REPLAY): counts are not saved.</div>
     </div>

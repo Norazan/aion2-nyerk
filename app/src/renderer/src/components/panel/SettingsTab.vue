@@ -2,6 +2,7 @@
 // HUD, panel, privacy and tracker settings. Every change applies at once.
 import { computed, onMounted, ref } from 'vue'
 import Button from '@/components/Button.vue'
+import AddonsSection from '@/components/panel/AddonsSection.vue'
 import SettingRow from '@/components/SettingRow.vue'
 import Slider from '@/components/Slider.vue'
 import Toggle from '@/components/Toggle.vue'
@@ -32,7 +33,7 @@ const updateText = computed(() => {
     case 'restarting':
       return `Restarting to install ${u.version}…`
     case 'error':
-      return `Could not check: ${u.error ?? 'unknown error'}`
+      return `${u.error ?? 'The update failed (UNKNOWN).'} Show log, below, has the details.`
     default:
       return 'Not checked yet.'
   }
@@ -182,6 +183,8 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
         </div>
       </div>
     </section>
+
+    <AddonsSection />
 
     <section>
       <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-darkest">Updates</h3>

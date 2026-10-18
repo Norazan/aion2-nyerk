@@ -61,6 +61,9 @@ function setKina(next: KinaSession): void {
 const soulListeners = new Set<(toast: SoulToast) => void>()
 const statusListeners = new Set<(status: TrackerStatus) => void>()
 const shopListeners = new Set<(stock: ShopStock[]) => void>()
+/** Addons' Python parts: `--addon <id>=<file>` for each (main/addons.ts sets them). */
+let addonArgs: string[] = []
+const addonLineListeners = new Set<(ev: Record<string, unknown>) => void>()
 
 let status: TrackerStatus = {
   state: 'starting',
@@ -178,6 +181,7 @@ export function startTracker(): void {
   const args = [...cmd.args, '--data', data]
   if (replay) args.push('--replay', replay, '--speed', process.env['A2T_REPLAY_SPEED'] ?? '1')
   else if (!capturing) args.push('--paused')
+  args.push(...addonArgs)
 
   stderrTail = []
   setStatus({ state: 'starting', detail: null, dataFile: data, replay: Boolean(replay), lastPacketAgo: null })
@@ -209,7 +213,9 @@ export function startTracker(): void {
     setStatus({ state: 'error', detail: `Could not start the tracker: ${err.message}` })
   })
   proc.on('exit', (code) => {
-    if (child === proc) child = null
+    // Stopped on purpose, or replaced by a restart (whose new helper is `child` by now): not a crash.
+    if (child !== proc) return
+    child = null
     if (stopping) return
     const why = stderrTail.at(-1) ?? `exit code ${code}`
     if (restarts >= RESTART_DELAYS_MS.length) {
@@ -231,6 +237,11 @@ function handleLine(line: string): void {
     return
   }
   switch (ev['type']) {
+    case 'addon':
+    case 'addonLoaded':
+    case 'addonError':
+      for (const fn of addonLineListeners) fn(ev)
+      break
     case 'ready':
       restarts = 0
       replacePets(ev['pets'] as Pet[])
@@ -359,6 +370,7 @@ function handleLine(line: string): void {
         position,
         positionAt: position ? (moved ? Date.now() : nearby.positionAt) : null,
         monsters: ev['monsters'] as Nearby['monsters'],
+        height: (ev['height'] as number | null | undefined) ?? null,
       }
       broadcast('tracker:nearby', nearby)
       break
@@ -470,6 +482,23 @@ export const tracker = {
     stopTracker()
     startTracker()
   },
+  /** Restart the helper with the session's soul counts carried across (an addon reload). */
+  async restartKeepingSession(): Promise<void> {
+    const sessions = await this.dumpSession()
+    if (sessions && Object.keys(sessions).length) restoring = { sessions, world: nearby.world, position: nearby.position }
+    if (child) this.restart()
+  },
+  /** The addons' Python parts the next start loads. */
+  setAddonArgs(args: string[]): void {
+    addonArgs = args
+  },
+  /** An addon line from the helper (addon, addonLoaded, addonError). */
+  onAddonLine(fn: (ev: Record<string, unknown>) => void): () => void {
+    addonLineListeners.add(fn)
+    return () => addonLineListeners.delete(fn)
+  },
+  /** To an addon's Python part (sidecar.py: addon, addonSettings). */
+  addonCommand: (cmd: Record<string, unknown>): void => command(cmd),
 }
 
 /** Ask the sidecar to quit, and make sure it is gone. Safe to call from `process.on('exit')`. */

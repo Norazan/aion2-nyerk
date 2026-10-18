@@ -221,9 +221,8 @@ export const TIMERS: TimerDef[] = [
     detail: 'Elyos and Asmodians fight over the artifacts in Lower Reshanta',
     schedule: { kind: 'zoned', days: [1, 4, 6], times: [hm(21)] },
     lead: 10,
-    // In doubt: the map put the Executors, who come shortly after the siege, at 21:30 UTC, four
-    // hours before this. The map's Artifact Siege tab will settle it.
-    confirmed: false,
+    // Confirmed by the player (2026-10-17).
+    confirmed: true,
     defaultOn: false,
   },
   {

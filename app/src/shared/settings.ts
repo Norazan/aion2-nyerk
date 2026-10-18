@@ -14,6 +14,7 @@ import {
   type Region,
   type TimerId,
 } from './timers.ts'
+import { isAddonId, isSettingKey } from './addons.ts'
 
 export interface Point {
   x: number
@@ -108,6 +109,12 @@ export interface Settings {
     /** The collection file; empty = <userData>/collection.json. */
     dataFile: string
   }
+
+  /**
+   * Addons (shared/addons.ts): on or off, by id (an id first found is recorded as off), and the
+   * values of the settings each declares.
+   */
+  addons: { enabled: Record<string, boolean>; values: Record<string, Record<string, boolean | number | string>> }
 }
 
 export type SettingKey = keyof Settings
@@ -152,6 +159,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   },
   sleepWithoutGame: true,
   tracker: { python: '', dataFile: '' },
+  addons: { enabled: {}, values: {} },
 }
 
 const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
@@ -240,6 +248,22 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
       return {
         python: typeof v.python === 'string' ? v.python.trim() : '',
         dataFile: typeof v.dataFile === 'string' ? v.dataFile.trim() : '',
+      } as Settings[K]
+    }
+    case 'addons': {
+      const v = (value ?? {}) as Partial<Settings['addons']>
+      const enabled = typeof v.enabled === 'object' && v.enabled !== null ? v.enabled : {}
+      const values = typeof v.values === 'object' && v.values !== null ? v.values : {}
+      // Checked against each addon's declarations where they are used; here only their shape.
+      const primitive = (x: unknown): boolean => typeof x === 'boolean' || typeof x === 'string' || (typeof x === 'number' && Number.isFinite(x))
+      return {
+        enabled: Object.fromEntries(Object.entries(enabled).filter(([id, on]) => isAddonId(id) && typeof on === 'boolean').slice(0, 200)),
+        values: Object.fromEntries(
+          Object.entries(values)
+            .filter(([id, vals]) => isAddonId(id) && typeof vals === 'object' && vals !== null)
+            .slice(0, 200)
+            .map(([id, vals]) => [id, Object.fromEntries(Object.entries(vals).filter(([k, x]) => isSettingKey(k) && primitive(x)).slice(0, 40))]),
+        ),
       } as Settings[K]
     }
   }

@@ -32,7 +32,8 @@ stdout, one JSON object per line (nothing else is ever written there):
                                                         the map's field boss list, when it changes
                                                         (up: spawned at; dead: respawns at)
     {"type": "snapshot", "pets": [...]}                 answer to {"cmd": "snapshot"}, then a nearby
-    {"type": "nearby", "world": 1010, "position": [x, y] | null, "monsters": [{"npc", "count"}]}
+    {"type": "nearby", "world": 1010, "position": [x, y] | null, "height": z | null,
+     "monsters": [{"npc", "count"}]}
                                                         what is loaded around you, when it changes
 
 stdin, one JSON object per line:
@@ -48,6 +49,12 @@ stdin, one JSON object per line:
     {"cmd": "capture", "on": false}     stop capturing (the game closed) or start again. Paused,
                                         the helper only serves the collection; a session's counts
                                         carry on across a pause. --paused starts it that way.
+    {"cmd": "addon", "addon": "nearby-nodes", "name": "...", "data": ...}
+                                        to an addon's Python part, from its pages (addons.py)
+    {"cmd": "addonSettings", "addon": "nearby-nodes", "values": {...}}
+                                        its declared settings, at start and when they change
+
+--addon <id>=<file.py>, once per addon, loads addons' Python parts (addons.py has their lines out).
 
 A pet is {"id", "name" (null if unknown), "souls", "level", "levelEstimated", "session"}.
 The app ends the helper by sending quit or closing stdin.
@@ -63,9 +70,13 @@ import time
 from pathlib import Path
 
 from . import capture
+from .addons import Addons
 from .analyze import NPCS_DEFAULT
 from .track import STORE, Tracker, load
 
+
+# Nearby (monsters, your position) goes out at most this often, when it changed.
+NEARBY_EVERY_S = 0.25
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -74,6 +85,7 @@ def main() -> None:
     ap.add_argument("--replay", help="feed a saved capture instead of the live game (to try the UI)")
     ap.add_argument("--speed", type=float, default=1.0, help="replay speed, as a multiple of real time")
     ap.add_argument("--paused", action="store_true", help="start without capturing (the game is closed)")
+    ap.add_argument("--addon", action="append", default=[], help="an addon's Python part, as <id>=<file.py>")
     a = ap.parse_args()
 
     # UTF-8 both ways, whatever the environment: the packaged helper ignores the app's
@@ -103,6 +115,11 @@ def main() -> None:
         emit(ev)
 
     tracker = Tracker(data, npcs, persist=a.replay is None, on_event=on_event, store=store)
+    if a.addon:
+        addons = Addons(tracker, emit)
+        with tracker.lock:
+            addons.load(a.addon)
+            tracker.addons = addons
 
     def on_packet(ts: float, pkt: bytes) -> None:
         last_packet[0] = time.monotonic()
@@ -148,7 +165,12 @@ def main() -> None:
                 continue
             ago = None if last_packet[0] is None else round(time.monotonic() - last_packet[0], 1)
             emit({"type": "heartbeat", "lastPacketAgo": ago})
-            if tracker.nearby_dirty:
+
+    def nearby_out() -> None:
+        # What is around you (monsters, your position) within 250 ms of a change,
+        # at most 4 times a second however busy it gets.
+        while not stop.wait(NEARBY_EVERY_S):
+            if capturing[0] is not None and tracker.nearby_dirty:
                 emit({"type": "nearby", **tracker.nearby()})
 
     emit({"type": "ready", "pets": tracker.snapshot(), "character": tracker.character(), "data": str(store), "replay": bool(a.replay)})
@@ -157,6 +179,7 @@ def main() -> None:
     else:
         set_capture(True)
     threading.Thread(target=heartbeat, name="heartbeat", daemon=True).start()
+    threading.Thread(target=nearby_out, name="nearby", daemon=True).start()
 
     for line in sys.stdin:
         try:
@@ -183,6 +206,13 @@ def main() -> None:
             elif cmd == "capture":
                 if not a.replay:
                     set_capture(bool(msg["on"]))
+            elif cmd in ("addon", "addonSettings"):
+                if tracker.addons is not None:
+                    with tracker.lock:
+                        if cmd == "addon":
+                            tracker.addons.message(str(msg["addon"]), str(msg["name"]), msg.get("data"))
+                        else:
+                            tracker.addons.settings(str(msg["addon"]), dict(msg.get("values") or {}))
             else:
                 emit({"type": "error", "detail": f"unknown command {cmd!r}"})
         except (ValueError, KeyError, TypeError) as e:

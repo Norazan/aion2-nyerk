@@ -119,7 +119,7 @@ function saveLevel(): void {
       </label>
     </div>
 
-    <p v-if="error" class="text-sm text-red">Could not load the drop locations: {{ error }}</p>
+    <p v-if="error" class="text-sm text-red [overflow-wrap:anywhere]">Could not load the drop locations: {{ error }}</p>
     <p v-else-if="!data" class="text-sm text-darker">Loading drop locations…</p>
     <p v-else-if="!droppers.length" class="text-sm text-darker">
       No monster drops this pet's soul: it comes from chests, events or the shop.

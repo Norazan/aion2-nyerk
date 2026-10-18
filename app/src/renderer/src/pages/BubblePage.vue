@@ -27,7 +27,13 @@ watch(
 // timer plays its own sound; timers alerting together with the same sound play it once.
 let offAlert: (() => void) | null = null
 const lastPlayed = new Map<string, number>()
+// An addon asking for attention: a chime (as the timers' sound and volume say) and a pulse.
+let offNotify: (() => void) | null = null
 onMounted(() => {
+  offNotify = bridge().on('addons:notify', () => {
+    pulse.value++
+    if (store.settings.timers.sound) playChime(store.settings.timers.volume, DEFAULT_SOUND)
+  })
   offAlert = bridge().on('timers:alert', (a) => {
     const cfg = store.settings.timers
     if (!cfg.sound) return
@@ -38,7 +44,10 @@ onMounted(() => {
     playChime(cfg.volume, sound)
   })
 })
-onBeforeUnmount(() => offAlert?.())
+onBeforeUnmount(() => {
+  offAlert?.()
+  offNotify?.()
+})
 const shaking = computed(() => store.alerting.length > 0 && store.settings.timers.shake)
 
 const drag = windowDrag({

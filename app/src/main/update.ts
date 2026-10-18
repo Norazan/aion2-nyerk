@@ -56,6 +56,39 @@ function set(patch: Partial<UpdateStatus>): void {
   broadcast('update:status', status)
 }
 
+/**
+ * A failed check, download or install: the whole error (stack and all) goes to tracker.log, the
+ * panel gets a short line ending in a code to quote. A full message can be a long path or a page of HTTP.
+ */
+function fail(step: 'check' | 'download' | 'install', err: unknown): void {
+  const e = err as { code?: unknown; statusCode?: unknown; stack?: unknown; message?: unknown } | null
+  const code =
+    typeof e?.code === 'string' && e.code
+      ? e.code
+      : typeof e?.statusCode === 'number'
+        ? `HTTP ${e.statusCode}`
+        : 'UNKNOWN'
+  const what = { check: 'Could not check for updates', download: 'The update did not download', install: 'The update did not install' }[step]
+  const why = failureReason(code)
+  const line = `${what}${why ? `: ${why}` : ''} (${code}).`
+  // electron-updater both emits 'error' and rejects: one failure, one entry.
+  if (status.state === 'error' && status.error === line) return
+  log(`update error (${step}, ${code}): ${typeof e?.stack === 'string' ? e.stack : String(e?.message ?? err)}`)
+  set({ state: 'error', error: line, checkedAt: Date.now() })
+}
+
+/** A few words for the failures seen in the wild; anything else is left to its code and the log. */
+function failureReason(code: string): string | null {
+  if (['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code) || code.startsWith('ERR_NAME') || code.startsWith('ERR_INTERNET'))
+    return 'no connection to the update server'
+  if (code === 'ENOENT') return 'a file it needs is missing'
+  if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') return 'a file is locked or not writable'
+  if (code.startsWith('HTTP 5')) return 'the update server is having trouble'
+  if (code.startsWith('HTTP ')) return 'the update server turned the request down'
+  if (code.includes('SIGNATURE') || code.includes('CHECKSUM') || code.includes('SHA512')) return 'the download did not verify'
+  return null
+}
+
 const dataDir = (): string => app.getPath('userData')
 const bundleRoot = (): string => join(dataDir(), 'bundles')
 
@@ -110,7 +143,7 @@ function wire(): void {
   autoUpdater.on('update-not-available', () => set({ state: 'none', version: null, kind: null, checkedAt: Date.now() }))
   autoUpdater.on('download-progress', (p) => set({ state: 'downloading', percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (info) => set({ state: 'ready', version: info.version, percent: 100 }))
-  autoUpdater.on('error', (err) => set({ state: 'error', error: err?.message ?? String(err), checkedAt: Date.now() }))
+  autoUpdater.on('error', (err) => fail(status.state === 'downloading' ? 'download' : 'check', err))
 }
 
 /**
@@ -215,7 +248,7 @@ export const updates = {
     try {
       await autoUpdater.checkForUpdates()
     } catch (err) {
-      set({ state: 'error', error: (err as Error).message, checkedAt: Date.now() })
+      fail('check', err)
     }
   },
 
@@ -230,7 +263,7 @@ export const updates = {
         await autoUpdater.downloadUpdate()
       }
     } catch (err) {
-      set({ state: 'error', error: (err as Error).message })
+      fail('download', err)
     }
   },
 
@@ -253,7 +286,8 @@ export const updates = {
         // The built-in app is named by clearing the pointer (a rollback to the install's own).
         await activateBundle(bundleRoot(), version === shellVersion() ? null : version)
       } catch (err) {
-        set({ state: 'error', error: `Could not switch to ${version}: ${(err as Error).message}` })
+        log(`update error: could not switch to ${version}`)
+        fail('install', err)
         return
       }
       relaunch()

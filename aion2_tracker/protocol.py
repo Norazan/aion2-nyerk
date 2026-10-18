@@ -351,7 +351,7 @@ def parse_collection(pkt: bytes) -> Collection | None:
 
 OP_MAP_LOAD = (0x21, 0x36)  # every zone load: the map id (= questlog.gg world id) and where you are
 OP_TELEPORT = (0x23, 0x36)  # entity 0 = you, placed somewhere (zone entry, teleport)
-OP_CASTS = ((0x02, 0x38), (0x03, 0x38))  # skill casts: the caster, then where it stands
+OP_CASTS = ((0x02, 0x38), (0x03, 0x38))  # skill casts: the caster, then where its target stands
 
 
 @dataclass(frozen=True)
@@ -392,7 +392,10 @@ def parse_self_teleport(pkt: bytes) -> tuple[float, float] | None:
 
 def parse_cast(pkt: bytes) -> tuple[int, float, float] | None:
     """`02 38` / `03 38 <caster varint> 00 <target varint> <skill u32> ... <f32 x> <f32 y>`: the
-    caster's position. Its offset moves with the varints, so the first plausible x, y, z after the
+    caster, and where its **target** stands, not the caster (2026-10-17: all 566 of your casts in
+    gartua.pcap gave Gartua's spawn point while your effects put you 1,300-2,000 away; of 986 `02 38`
+    checked against others' movement, 938 matched the target). Close to you only for melee and
+    gathering. Its offset moves with the varints, so the first plausible x, y, z after the
     skill is taken: game coordinates stay within +-500,000, values under 1,000 are the other fields
     of the record read as floats (a 0x42ED90C1 there reads as 118.7), and the height after them is
     under MAX_HEIGHT. That last check matters: some `03 38` carry a field reading 1,413.8 just
@@ -414,6 +417,52 @@ def parse_cast(pkt: bytes) -> tuple[int, float, float] | None:
 
 # Heights seen run 11,000 to 30,000; a coordinate read as a height is far above this.
 MAX_HEIGHT = 100_000
+
+
+# Effects (buffs, heals, damage over time and their ticks) on an entity, with where it stands.
+OP_EFFECTS = ((0x2A, 0x38), (0x2B, 0x38))
+
+# Epoch milliseconds, 2020 to 2128: how the timestamp in an effect record is found. Effects that do
+# not run out (gliding's, travel_no_combat.pcap) carry 4,102,412,400,000, the end of 2099.
+_MS_MIN, _MS_MAX = 1_580_000_000_000, 5_000_000_000_000
+
+
+def parse_effect_position(pkt: bytes) -> tuple[int, float, float] | None:
+    """`2a 38` / `2b 38 <source varint> ... <u64 ms> <target varint> <0-6 bytes> <x y z f32>`: an
+    effect put on the target, and where the target stands, whoever the source is (you, a party
+    member, a monster). The bytes after the target are `01 00`, `01 02` or `<varint> 00 02` mostly;
+    the first plausible x, y, z within 8 bytes is taken. A field before the time can read as one
+    (`f5 81 bb 00 e8 03 00 00` reads as the year 2106), so each window that does is tried in turn.
+
+    Found 2026-10-17: in gartua.pcap all 112,742 effect records read this way, and against
+    other entities' movement (`1a`-`1f 37`, under 0.3 s old) the median error was 0, the 90th
+    percentile 311. The earlier reading only took `2a 38` with the target repeating the source
+    (effects you put on yourself): about 1 record in 24."""
+    if opcode(pkt) not in OP_EFFECTS:
+        return None
+    b = _body(pkt)
+    for i in range(1, min(len(b) - 8, 40)):
+        if not _MS_MIN < int.from_bytes(b[i : i + 8], "little") < _MS_MAX:
+            continue
+        target, n = read_varint(b, i + 8)
+        if not n or not target:
+            continue
+        start = i + 8 + n
+        for off in range(start, min(start + 9, len(b) - 11)):
+            x, y, z = _f32(b, off), _f32(b, off + 4), _f32(b, off + 8)
+            if 1000 < abs(x) < 500_000 and 1000 < abs(y) < 500_000 and abs(z) < MAX_HEIGHT:
+                return target, x, y
+    return None
+
+
+def height_after(pkt: bytes, x: float, y: float) -> float | None:
+    """The height that follows an x, y pair in a record (zone loads, teleports, casts and effects
+    all carry `<x> <y> <z>` as f32s): read where those exact bytes are."""
+    i = pkt.find(struct.pack("<2f", x, y))
+    if i < 0 or i + 12 > len(pkt):
+        return None
+    z = struct.unpack_from("<f", pkt, i + 8)[0]
+    return z if abs(z) < 1e6 else None
 
 
 OP_SELF = (0x33, 0x36)  # you, on every zone entry: entity, name and server among much else

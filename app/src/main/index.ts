@@ -3,6 +3,7 @@
  * Python tracker running as a child process.
  */
 import { app } from 'electron'
+import { addons, registerAddonScheme } from './addons.ts'
 import { DISPLAY_NAME } from '../shared/app.ts'
 import { broadcast } from './broadcast.ts'
 import { startFieldBosses } from './fieldBosses.ts'
@@ -28,6 +29,8 @@ const migrated = OLD_NAMES.map((name) => moveDataFolder(join(app.getPath('appDat
   .join('; ')
 // Kept from the first release: Windows ties the shortcut and the updater to this id.
 app.setAppUserModelId('com.xcrov.aion2-drop-tracker')
+// Addons' pages (nyerk-addon://): Electron wants the scheme named before the app is ready.
+registerAddonScheme()
 
 // One instance: a second launch opens the first one's panel instead.
 if (!app.requestSingleInstanceLock()) {
@@ -49,6 +52,7 @@ if (!app.requestSingleInstanceLock()) {
     startOnTopWatch()
     registerIpc()
     createTray()
+    addons.start()
 
     settings.onChanged((all) => {
       broadcast('settings:changed', all)

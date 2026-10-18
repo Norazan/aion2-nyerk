@@ -3,6 +3,7 @@
  * handlers against it, preload builds the bridge from it, the renderer calls the bridge. The
  * pattern is marnis-app's (shared/ipc-contract.ts), with this app's channels.
  */
+import type { AddonEvent, AddonsStatus } from './addons.ts'
 import type { KinaSession } from './kina.ts'
 import type { Point, SettingKey, Settings } from './settings.ts'
 import type { FieldBosses, TimerAlert, TimerId } from './timers.ts'
@@ -61,6 +62,20 @@ export interface InvokeChannels {
   'timers:open': { args: []; result: void }
   /** Open the panel on a pet's drop locations (from the merchant window). */
   'panel:showPet': { args: [pet: number]; result: void }
+
+  /** The addons found in the addons folder (shared/addons.ts). */
+  'addons:get': { args: []; result: AddonsStatus }
+  /** Open the addons folder in Explorer (made first if it is not there). */
+  'addons:openFolder': { args: []; result: void }
+  /** Look at the addons folder again and restart what runs from it. */
+  'addons:reload': { args: []; result: AddonsStatus }
+  'addons:setEnabled': { args: [id: string, enabled: boolean]; result: void }
+  'addons:setSetting': { args: [id: string, key: string, value: unknown]; result: void }
+  /**
+   * From an addon's frame, relayed by the window holding it (which knows the frame's origin, and
+   * so the addon): what the SDK asks for. Main checks it against the addon's permissions.
+   */
+  'addons:call': { args: [id: string, method: string, args: unknown[]]; result: unknown }
 }
 
 /** Main → renderer, broadcast. */
@@ -96,6 +111,12 @@ export interface EventChannels {
   'hud:editing': boolean
   'panel:visible': boolean
   'update:status': UpdateStatus
+  /** The addons, after a reload or a switch, or when the folder changed (a reload would find more). */
+  'addons:changed': AddonsStatus
+  /** To an addon's frames (the windows pass it on to the frames of that addon only). */
+  'addons:event': AddonEvent
+  /** An addon asked for attention: the bubble chimes and pulses. */
+  'addons:notify': { addon: string }
 }
 
 export type InvokeChannel = keyof InvokeChannels
@@ -119,8 +140,9 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = [
   'hud:setEditing', 'hud:moveTo', 'hud:dragEnd', 'hud:resize',
   'merchant:moveTo', 'merchant:dragEnd', 'merchant:resize', 'merchant:close',
   'killfeed:open', 'killfeed:close', 'killfeed:moveTo', 'killfeed:dragEnd', 'killfeed:resize', 'panel:showPet', 'timers:get', 'timers:dismiss', 'timers:open',
+  'addons:get', 'addons:openFolder', 'addons:reload', 'addons:setEnabled', 'addons:setSetting', 'addons:call',
 ]
 
 export const EVENT_CHANNELS: readonly EventChannel[] = [
-  'settings:changed', 'tracker:status', 'tracker:pets', 'tracker:pet', 'tracker:soul', 'tracker:nearby', 'tracker:combat', 'tracker:shop', 'tracker:kina', 'tracker:fieldBosses', 'tracker:pvp', 'tracker:pvpKill', 'panel:showPet', 'panel:showTab', 'panel:showTimers', 'timers:alert', 'timers:alerting', 'hud:editing', 'panel:visible', 'update:status',
+  'settings:changed', 'tracker:status', 'tracker:pets', 'tracker:pet', 'tracker:soul', 'tracker:nearby', 'tracker:combat', 'tracker:shop', 'tracker:kina', 'tracker:fieldBosses', 'tracker:pvp', 'tracker:pvpKill', 'panel:showPet', 'panel:showTab', 'panel:showTimers', 'timers:alert', 'timers:alerting', 'hud:editing', 'panel:visible', 'update:status', 'addons:changed', 'addons:event', 'addons:notify',
 ]

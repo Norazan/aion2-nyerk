@@ -17,6 +17,7 @@ import argparse
 import collections
 import copy
 import json
+import math
 import sys
 import threading
 import time
@@ -38,6 +39,14 @@ COMBAT_EVERY_S = 5.0
 # How soon after a login sync the record naming the character comes (same frame bundle in the
 # captures): a switch of character within this moves the sync to the new one.
 SYNC_SWITCH_S = 30.0
+# Your casts carry their target's position, not yours: within this of where an effect last put
+# you, a cast says nothing new (ranged skills reached 2,000 from you in gartua.pcap); farther, you
+# have moved since and the target is the best guess.
+CAST_RANGE = 2500.0
+# Faster than this between two positions under MAX_JUMP_S apart is a misread, not you (yours
+# reached 5,400/s, mounted or dashing, in pvp_kills.pcap).
+MAX_SPEED = 10_000.0
+MAX_JUMP_S = 2.0
 
 
 def load(path: Path = STORE) -> dict:
@@ -136,6 +145,11 @@ class Tracker:
         self.visible: dict[int, int] = {}
         self.world: int | None = None
         self.position: tuple[float, float] | None = None
+        self.height: float | None = None  # your z, with the position where the record gives it
+        # When the position last moved, and whether it is yours (zone load, teleport, an effect on
+        # you) or a cast target's near you.
+        self.position_ts = float("-inf")
+        self.position_exact = False
         self.nearby_dirty = False
         # Collections saved before the level rules can hold a pet past its threshold (97 souls at
         # Lv1): level those up now, as the game already has.
@@ -157,11 +171,19 @@ class Tracker:
         self.pvp_seen: dict[tuple[int, int], float] = {}
         self.self_votes: collections.Counter = collections.Counter()
         self.legions: dict[int, str] = {}  # entity -> legion name, for the players around you
+        # Addons' Python parts (addons.py), set by the helper; told of each packet and zone.
+        self.addons = None
+        self._zoned = False
 
     def on_packet(self, ts: float, pkt: bytes) -> None:
         # Under the lock: the app's helper reads `visible` from another thread.
         with self.lock:
             self._on_packet(ts, pkt)
+            if self.addons is not None:
+                if self._zoned:
+                    self._zoned = False
+                    self.addons.zone(self.world)
+                self.addons.packet(ts, pkt)
 
     def _on_packet(self, ts: float, pkt: bytes) -> None:
         if s := P.parse_spawn(pkt):
@@ -186,17 +208,24 @@ class Tracker:
                 self.recent.append((ts, d.entity_id))
         if m := P.parse_map_load(pkt):
             # A new zone: nothing from the last one is around you any more.
-            self.world, self.position = m.world, (m.x, -m.y)
+            self.world = m.world
+            self._move(ts, pkt, m.x, m.y, exact=True)
             self.visible.clear()
             self.players.clear()
             self.legions.clear()
             self.nearby_dirty = True
+            self._zoned = True
         elif t := P.parse_self_teleport(pkt):
-            self.position = (t[0], -t[1])
-            self.nearby_dirty = True
-        elif (c := P.parse_cast(pkt)) and c[0] == self.self_id():
-            self.position = (c[1], -c[2])
-            self.nearby_dirty = True
+            self._move(ts, pkt, t[0], t[1], exact=True)
+        elif (e := P.parse_effect_position(pkt)) and self._is_me(e[0]):
+            # Effects on you, whoever put them there: where you are, between zone loads.
+            if not self._jump(ts, e[1], e[2]):
+                self._move(ts, pkt, e[1], e[2], exact=True)
+        elif (c := P.parse_cast(pkt)) and self._is_me(c[0]):
+            # Your casts (gathering is one) give where their target is: only a guess at yours.
+            near = self.position is not None and math.dist(self.position, (c[1], -c[2])) <= CAST_RANGE
+            if not (self.position_exact and near) and not self._jump(ts, c[1], c[2]):
+                self._move(ts, pkt, c[1], c[2], exact=False)
         if (who := P.parse_character(pkt)) is not None:
             self.self_entity = who.entity
             self._character(ts, who)
@@ -237,6 +266,20 @@ class Tracker:
         if coll := P.parse_collection(pkt):
             self._sync(ts, coll)
 
+    def _move(self, ts: float, pkt: bytes, x: float, y: float, exact: bool) -> None:
+        """You are at game (x, y): kept as questlog.gg's (x, -y), with the height the record gives."""
+        self.position = (x, -y)
+        self.height = P.height_after(pkt, x, y)
+        self.position_ts, self.position_exact = ts, exact
+        self.nearby_dirty = True
+
+    def _jump(self, ts: float, x: float, y: float) -> bool:
+        """Game (x, y) is too far from your last position for the time since: a misread."""
+        dt = ts - self.position_ts
+        if self.position is None or dt >= MAX_JUMP_S:
+            return False
+        return math.dist(self.position, (x, -y)) > MAX_SPEED * max(dt, 0.05)
+
     def forget_view(self) -> None:
         """The game closed: nothing is around you any more, and entity ids start over."""
         with self.lock:
@@ -245,25 +288,33 @@ class Tracker:
             self.credits.clear()
             self.self_votes.clear()
             self.world = self.position = None
+            self.position_exact = False
             self.nearby_dirty = True
+            if self.addons is not None:
+                self.addons.zone(None)
 
     def _maxed(self, pid: int | None) -> bool:
         """A pet at the cap, which gets crystals instead of souls."""
         pet = self.data["pets"].get(str(pid)) if pid is not None else None
         return bool(pet) and (pet.get("level") or 0) >= MAX_LEVEL
 
+    def _is_me(self, entity: int) -> bool:
+        """You: the entity your zone entry named, or the one credited with the kills before your souls."""
+        return entity in (self.self_entity, self.self_id()) and entity is not None
+
     def self_id(self) -> int | None:
         best = self.self_votes.most_common(1)
         return best[0][0] if best else None
 
     def nearby(self) -> dict:
-        """The monsters loaded around you, by mob code, with your zone and position."""
+        """The monsters loaded around you, by mob code, with your zone, position and height."""
         with self.lock:
             self.nearby_dirty = False
             counts = collections.Counter(self.visible.values())
         return {
             "world": self.world,
             "position": [round(v) for v in self.position] if self.position else None,
+            "height": round(self.height) if self.height is not None and self.position else None,
             "monsters": [{"npc": code, "count": n} for code, n in counts.most_common()],
         }
 
