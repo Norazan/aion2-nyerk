@@ -90,6 +90,19 @@ Addons you install may connect to other sites; each addon lists the sites it use
 To have your data deleted, open a [GitHub issue](../../issues) or ask in the
 [Nyerk Discord](https://discord.gg/tjJkjDzbbU).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).
+
+Installers are built from this repository by GitHub Actions and signed only after a maintainer
+approves each signing request.
+
+- Committers and reviewers: [xCROv](https://github.com/xCROv)
+- Approvers: [xCROv](https://github.com/xCROv)
+
+What the app sends, and to whom: see [Privacy](#privacy).
+
 ## Credits
 
 - Monster names (`data/npcs_en.json`) come from
