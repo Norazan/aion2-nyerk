@@ -69,6 +69,27 @@ cd app && npm install && npm run dist
 The installer is written to `app/dist/`. To run without installing, use `npm run build` and then
 start Electron from `app/` (`npx electron .`).
 
+## Privacy
+
+Nyerk itself sends data only to nyerk.app:
+
+- **Your IP address**, which every connection carries, for the field boss timers and update checks.
+- **The app's version**, which every request names.
+- **A machine identifier** for the crowd-sourced field boss timers: a salted hash of your Windows
+  machine id, made on your PC, so the id itself never leaves it.
+- **Your game server and zone ids, and the field boss times your map shows**, for the
+  crowd-sourced timers.
+
+Turn off **Share field boss timers** in the app's Timers tab to stop sending the machine identifier
+and the timers; the app then uses only your own map. Update checks never carry either.
+
+Nothing else from the game is sent: not your character's name, position or account.
+
+Addons you install may connect to other sites; each addon lists the sites it uses.
+
+To have your data deleted, open a [GitHub issue](../../issues) or ask in the
+[Nyerk Discord](https://discord.gg/tjJkjDzbbU).
+
 ## Credits
 
 - Monster names (`data/npcs_en.json`) come from
