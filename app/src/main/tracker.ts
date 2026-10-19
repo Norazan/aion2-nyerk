@@ -21,6 +21,7 @@ import { broadcast } from './broadcast.ts'
 import { settings } from './settings.ts'
 import { kinaBalance, kinaRebase, NO_KINA, type KinaSession } from '../shared/kina.ts'
 import { fieldBosses } from './fieldBosses.ts'
+import { featureOn } from './builtins.ts'
 import { pvpLog } from './pvpLog.ts'
 import type { SessionCounts } from './restart.ts'
 import { appVersion, shellVersion } from './version.ts'
@@ -326,6 +327,8 @@ function handleLine(line: string): void {
       fieldBosses.fromMap(ev['world'] as number, ev['bosses'] as { id: number; up: boolean; at: number }[])
       break
     case 'pvpKill': {
+      // The PvP Log addon switched off: no kills kept (those kept stay for when it is back on).
+      if (!featureOn('pvp-log')) break
       const kill: PvpKill = {
         at: Date.now(),
         killer: ev['killer'] as PvpKill['killer'],

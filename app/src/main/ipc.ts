@@ -11,6 +11,9 @@ import {
   closeMerchant,
   hidePanel,
   hudDragEnded,
+  addonHudDragEnded,
+  moveAddonHud,
+  resizeAddonHud,
   markQuitting,
   merchantDragEnded,
   killFeedDragEnded,
@@ -97,6 +100,16 @@ export function registerIpc(): void {
   handle('hud:dragEnd', () => hudDragEnded())
   handle('hud:resize', (size) => {
     if (isPoint({ x: size?.width, y: size?.height })) resizeHud(size)
+  })
+
+  handle('addonHud:moveTo', (id, to) => {
+    if (isAddonId(id) && isPoint(to)) moveAddonHud(id, to)
+  })
+  handle('addonHud:dragEnd', (id) => {
+    if (isAddonId(id)) addonHudDragEnded(id)
+  })
+  handle('addonHud:resize', (id, size) => {
+    if (isAddonId(id) && isPoint({ x: size?.width, y: size?.height })) resizeAddonHud(id, size)
   })
 
   handle('merchant:moveTo', (to) => {

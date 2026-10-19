@@ -189,7 +189,7 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
     <section>
       <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-darkest">Updates</h3>
       <div class="divide-y divide-[color:var(--gray-4)] rounded-lg border border-card bg-card px-3">
-        <SettingRow label="Check for updates automatically" hint="At start and every hour. An update found at start installs right away; one found while Aion 2 runs waits until it closes. Either way the restart is announced first, and the session and windows come back as they were.">
+        <SettingRow label="Check for updates automatically">
           <Toggle :model-value="store.settings.autoUpdateCheck" @update:model-value="store.set('autoUpdateCheck', $event)" />
         </SettingRow>
         <SettingRow :label="`Version ${store.update.current || info?.version || '…'}`" :hint="updateText">

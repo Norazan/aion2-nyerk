@@ -11,13 +11,18 @@ import { bridge } from '@/lib/bridge.ts'
 const unwrap = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 
-export function connectAddonFrame(frame: HTMLIFrameElement, addon: string): () => void {
+/** `onSize`: the page's height, each time it changes (the SDK reports it). */
+export function connectAddonFrame(frame: HTMLIFrameElement, addon: string, onSize?: (height: number) => void): () => void {
   const origin = `${ADDON_SCHEME}://${addon}`
   const post = (message: Record<string, unknown>): void => frame.contentWindow?.postMessage({ nyerk: 1, ...message }, origin)
 
   const onMessage = async (event: MessageEvent): Promise<void> => {
     if (event.source !== frame.contentWindow || event.origin !== origin) return
-    const m = event.data as { nyerk?: number; kind?: string; id?: number; method?: unknown; args?: unknown }
+    const m = event.data as { nyerk?: number; kind?: string; id?: number; method?: unknown; args?: unknown; height?: unknown }
+    if (m?.nyerk === 1 && m.kind === 'size' && typeof m.height === 'number' && Number.isFinite(m.height)) {
+      onSize?.(Math.max(0, m.height))
+      return
+    }
     if (m?.nyerk !== 1 || m.kind !== 'call' || typeof m.method !== 'string') return
     try {
       const result = await bridge().invoke('addons:call', addon, m.method, Array.isArray(m.args) ? m.args : [])

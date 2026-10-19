@@ -45,6 +45,10 @@ export interface InvokeChannels {
   'hud:moveTo': { args: [to: Point]; result: void }
   'hud:dragEnd': { args: []; result: void }
   'hud:resize': { args: [size: { width: number; height: number }]; result: void }
+  /** An addon's detached HUD (windows.ts): moved, dropped (its place saved), sized to its content. */
+  'addonHud:moveTo': { args: [id: string, to: Point]; result: void }
+  'addonHud:dragEnd': { args: [id: string]; result: void }
+  'addonHud:resize': { args: [id: string, size: { width: number; height: number }]; result: void }
   'merchant:moveTo': { args: [to: Point]; result: void }
   'merchant:dragEnd': { args: []; result: void }
   'merchant:resize': { args: [size: { width: number; height: number }]; result: void }
@@ -137,7 +141,7 @@ export const INVOKE_CHANNELS: readonly InvokeChannel[] = [
   'tracker:get', 'tracker:setSouls', 'tracker:setName', 'tracker:restart', 'tracker:resetSession', 'tracker:clearPvp',
   'update:get', 'update:check', 'update:download', 'update:install',
   'bubble:moveTo', 'bubble:dragEnd', 'panel:toggle', 'panel:hide', 'panel:setExpanded', 'panel:tab',
-  'hud:setEditing', 'hud:moveTo', 'hud:dragEnd', 'hud:resize',
+  'hud:setEditing', 'hud:moveTo', 'hud:dragEnd', 'hud:resize', 'addonHud:moveTo', 'addonHud:dragEnd', 'addonHud:resize',
   'merchant:moveTo', 'merchant:dragEnd', 'merchant:resize', 'merchant:close',
   'killfeed:open', 'killfeed:close', 'killfeed:moveTo', 'killfeed:dragEnd', 'killfeed:resize', 'panel:showPet', 'timers:get', 'timers:dismiss', 'timers:open',
   'addons:get', 'addons:openFolder', 'addons:reload', 'addons:setEnabled', 'addons:setSetting', 'addons:call',

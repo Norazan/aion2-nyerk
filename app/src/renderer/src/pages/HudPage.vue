@@ -1,8 +1,11 @@
 <script setup lang="ts">
 // The in-game overlay. Click-through, and exactly as big as what it shows: it measures itself and
 // main sizes the window to fit (an empty HUD is a hidden window). In edit mode it takes the mouse
-// so it can be dragged; Escape or Done ends that.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// so it can be dragged; Escape or Done ends that. Addons' HUD sections (frames sized to their
+// pages) go below the app's own, while their pages have them shown and not detached (a detached
+// one is a window of its own: AddonHudPage).
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import AddonFrame from '@/components/AddonFrame.vue'
 import GenusPill from '@/components/GenusPill.vue'
 import LevelBadge from '@/components/LevelBadge.vue'
 import LevelBar from '@/components/LevelBar.vue'
@@ -69,11 +72,24 @@ const kinaText = computed(() => {
   // Kina is coming in, but under a minute of it: no rate yet.
   return store.kina.earned ? 'Kina/h measuring…' : null
 })
-/** Between fights (idle timeout): nothing to show, so the HUD hides; pinned pets included. */
+/** Between fights (idle timeout): the pets have nothing to show, so they hide; pinned pets included. */
 const resting = computed(() => !!hud.value.idleHideSeconds && !store.fighting)
-const empty = computed(
-  () => resting.value || (nearRows.value.length === 0 && rows.value.length === 0 && toasts.value.length === 0),
+const petsShown = computed(() => !resting.value && (nearRows.value.length > 0 || rows.value.length > 0 || toasts.value.length > 0))
+
+/** Addons' HUD sections their pages have shown, and how tall each page is now (0: nothing to show). */
+const addonSections = computed(() =>
+  (store.addons?.addons ?? [])
+    .filter((a) => a.state === 'on' && a.id && a.hud && a.hudShown && !a.hudDetached)
+    .map((a) => ({ addon: a.id!, page: a.hud!.page, key: `${a.id}@${store.addons?.generation}` })),
 )
+const sectionHeights = reactive(new Map<string, number>())
+watch(addonSections, (list) => {
+  for (const key of [...sectionHeights.keys()]) if (!list.some((s) => s.key === key)) sectionHeights.delete(key)
+})
+const addonsShown = computed(() => addonSections.value.some((s) => (sectionHeights.get(s.key) ?? 0) > 0))
+const empty = computed(() => !petsShown.value && !addonsShown.value)
+/** While it is being moved with no pets in it, it says where they would be. */
+const petsHint = computed(() => store.hudEditing && !nearRows.value.length && !rows.value.length)
 
 const drag = windowDrag({ move: 'hud:moveTo', end: 'hud:dragEnd' })
 const done = (): void => void bridge().invoke('hud:setEditing', false)
@@ -96,7 +112,11 @@ function report(): void {
 // A hidden window does not run ResizeObserver (Chromium pauses rendering there), and the HUD is
 // hidden exactly while it is empty: the first soul would never show it. So it also measures
 // itself after every change to what it shows, which works hidden or not.
-watch([nearRows, rows, toasts, kinaText, resting, () => store.hudEditing, () => hud.value.scale, () => store.nearby], () => void nextTick(report), { deep: true })
+watch(
+  [nearRows, rows, toasts, kinaText, resting, addonSections, sectionHeights, () => store.hudEditing, () => hud.value.scale, () => store.nearby],
+  () => void nextTick(report),
+  { deep: true },
+)
 
 let observer: ResizeObserver | null = null
 onMounted(() => {
@@ -114,11 +134,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="inline-block">
     <div ref="root" class="inline-block" :style="{ zoom: hud.scale }">
+      <!-- Kept while an addon has a section, even with nothing to show: its frame has to be loaded
+           to say when it has something. Empty, it is invisible and out of the measured size. -->
       <div
-        v-if="!empty || store.hudEditing"
+        v-if="!empty || store.hudEditing || addonSections.length"
         :class="[
           'm-1.5 w-80 rounded-lg border bg-darker/90 p-2.5 shadow-card',
           store.hudEditing ? 'cursor-move border-dashed border-accent' : 'border-card',
+          empty && !store.hudEditing && 'invisible absolute',
         ]"
         :style="{ opacity: store.hudEditing ? 1 : hud.opacity }"
         @pointerdown="store.hudEditing && drag.onPointerDown($event)"
@@ -135,6 +158,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <template v-if="!resting || store.hudEditing">
         <div v-if="nearRows.length || kinaText" class="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
           <template v-if="nearRows.length"><span class="size-1.5 rounded-full bg-green" /><span class="text-green">Nearby</span></template>
           <Sparkline
@@ -190,7 +214,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <p v-if="store.hudEditing && !nearRows.length && !rows.length" class="text-xs text-darker">
+        <p v-if="petsHint" class="text-xs text-darker">
           {{
             hud.mode === 'pinned'
               ? 'Nothing nearby, and no pinned pets: pin some in the panel.'
@@ -212,6 +236,17 @@ onBeforeUnmount(() => {
             <span class="ml-auto tabular-nums text-darker">{{ t.crystal ? t.pet.crystals : progressText(t.pet) }}</span>
           </div>
         </TransitionGroup>
+        </template>
+
+        <!-- Each page draws itself, or nothing (height 0: laid out still, so it can say when it has
+             something); the mouse goes to the HUD, never to it. -->
+        <div
+          v-for="(s, i) in addonSections"
+          :key="s.key"
+          :class="['pointer-events-none', (sectionHeights.get(s.key) ?? 0) > 0 && (petsShown || petsHint || i > 0) && 'mt-2.5 border-t border-card pt-2.5']"
+        >
+          <AddonFrame :addon="s.addon" :page="s.page" fit @size="(h) => sectionHeights.set(s.key, h)" />
+        </div>
       </div>
     </div>
   </div>

@@ -1,5 +1,5 @@
 /**
- * Pack the built app into a bundle: out/main, out/preload and out/renderer into
+ * Pack the built app into a bundle: out/main, out/preload, out/renderer and out/addons into
  * dist-bundle/bundle-<version>.asar (as marnis-app's scripts/build-bundle.mjs).
  *
  *   node scripts/build-bundle.mjs      after `npm run build`
@@ -17,7 +17,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const APP = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'))
-const PARTS = ['main', 'preload', 'renderer']
+const PARTS = ['main', 'preload', 'renderer', 'addons']
 
 export async function buildBundle() {
   const { version } = JSON.parse(await readFile(join(APP, 'package.json'), 'utf8'))

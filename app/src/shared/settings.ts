@@ -112,9 +112,17 @@ export interface Settings {
 
   /**
    * Addons (shared/addons.ts): on or off, by id (an id first found is recorded as off), and the
-   * values of the settings each declares.
+   * values of the settings each declares, and each one's HUD section: shown or not, in the HUD or
+   * detached into its own window, and where that window was put.
    */
-  addons: { enabled: Record<string, boolean>; values: Record<string, Record<string, boolean | number | string>> }
+  addons: { enabled: Record<string, boolean>; values: Record<string, Record<string, boolean | number | string>>; hud: Record<string, AddonHudPlace> }
+}
+
+/** An addon's HUD section (shared/addons.ts): its page shows it, and may detach it into a window of its own. */
+export interface AddonHudPlace {
+  shown: boolean
+  detached: boolean
+  position: Point | null
 }
 
 export type SettingKey = keyof Settings
@@ -159,7 +167,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   },
   sleepWithoutGame: true,
   tracker: { python: '', dataFile: '' },
-  addons: { enabled: {}, values: {} },
+  addons: { enabled: {}, values: {}, hud: {} },
 }
 
 const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
@@ -254,6 +262,7 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
       const v = (value ?? {}) as Partial<Settings['addons']>
       const enabled = typeof v.enabled === 'object' && v.enabled !== null ? v.enabled : {}
       const values = typeof v.values === 'object' && v.values !== null ? v.values : {}
+      const hud = typeof v.hud === 'object' && v.hud !== null ? v.hud : {}
       // Checked against each addon's declarations where they are used; here only their shape.
       const primitive = (x: unknown): boolean => typeof x === 'boolean' || typeof x === 'string' || (typeof x === 'number' && Number.isFinite(x))
       return {
@@ -263,6 +272,15 @@ export function normalise<K extends SettingKey>(key: K, value: unknown): Setting
             .filter(([id, vals]) => isAddonId(id) && typeof vals === 'object' && vals !== null)
             .slice(0, 200)
             .map(([id, vals]) => [id, Object.fromEntries(Object.entries(vals).filter(([k, x]) => isSettingKey(k) && primitive(x)).slice(0, 40))]),
+        ),
+        hud: Object.fromEntries(
+          Object.entries(hud)
+            .filter(([id, h]) => isAddonId(id) && typeof h === 'object' && h !== null)
+            .slice(0, 200)
+            .map(([id, h]) => {
+              const x = h as Partial<AddonHudPlace>
+              return [id, { shown: x.shown === true, detached: x.detached === true, position: point(x.position) }]
+            }),
         ),
       } as Settings[K]
     }

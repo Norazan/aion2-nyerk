@@ -1,0 +1,9 @@
+{
+  "id": "timers",
+  "name": "Timers",
+  "version": "1.0.0",
+  "author": "xcrov",
+  "description": "The Timers tab: event and field boss timers, their alerts on the bubble, and shared field boss timers.",
+  "nyerk": "^1",
+  "builtin": true
+}

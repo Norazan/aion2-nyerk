@@ -5,6 +5,7 @@
  * bubble dismisses them until their next start.
  */
 import { broadcast } from './broadcast.ts'
+import { featureOn } from './builtins.ts'
 import { game } from './game.ts'
 import { settings } from './settings.ts'
 import { log, tracker } from './tracker.ts'
@@ -22,8 +23,9 @@ let announced = new Set<string>()
 function check(): void {
   const now = Date.now()
   const cfg = settings.get('timers')
-  // Only while the game runs (or a replay stands in for it): alerts are for playing.
-  const live = game.running() || Boolean(process.env['A2T_REPLAY'])
+  // Only while the game runs (or a replay stands in for it): alerts are for playing. None while the
+  // Timers addon is switched off (a settings change: the alerts up go at once).
+  const live = featureOn('timers') && (game.running() || Boolean(process.env['A2T_REPLAY']))
   const next: TimerAlert[] = []
   if (live) {
     for (const def of TIMERS) {

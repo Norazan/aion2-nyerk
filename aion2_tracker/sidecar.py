@@ -49,9 +49,9 @@ stdin, one JSON object per line:
     {"cmd": "capture", "on": false}     stop capturing (the game closed) or start again. Paused,
                                         the helper only serves the collection; a session's counts
                                         carry on across a pause. --paused starts it that way.
-    {"cmd": "addon", "addon": "nearby-nodes", "name": "...", "data": ...}
+    {"cmd": "addon", "addon": "example", "name": "...", "data": ...}
                                         to an addon's Python part, from its pages (addons.py)
-    {"cmd": "addonSettings", "addon": "nearby-nodes", "values": {...}}
+    {"cmd": "addonSettings", "addon": "example", "values": {...}}
                                         its declared settings, at start and when they change
 
 --addon <id>=<file.py>, once per addon, loads addons' Python parts (addons.py has their lines out).

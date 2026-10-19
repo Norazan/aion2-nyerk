@@ -12,22 +12,25 @@ import TimersTab from '@/components/panel/TimersTab.vue'
 import StatusDot, { statusText } from '@/components/StatusDot.vue'
 import { bridge } from '@/lib/bridge.ts'
 import { useApp } from '@/stores/app.ts'
+import { builtinOn, type BuiltinAddon } from '@shared/addons.ts'
 import { DISPLAY_NAME } from '@shared/app.ts'
 
 const store = useApp()
-const APP_TABS = [
+// The Timers and the PvP Log are built-in addons: their tabs show while they are switched on.
+const APP_TABS: { id: string; label: string; addon?: BuiltinAddon }[] = [
   { id: 'collection', label: 'Collection' },
   { id: 'session', label: 'Session' },
-  { id: 'timers', label: 'Timers' },
-  { id: 'pvp', label: 'PvP Log' },
-] as const
+  { id: 'timers', label: 'Timers', addon: 'timers' },
+  { id: 'pvp', label: 'PvP Log', addon: 'pvp-log' },
+]
+const appTabs = computed(() => APP_TABS.filter((t) => !t.addon || builtinOn(store.settings.addons.enabled, t.addon)))
 // Addons' tabs (`addon:<id>`) go after the app's own, before Settings.
 const addonTabs = computed(() =>
   (store.addons?.addons ?? [])
     .filter((a) => a.state === 'on' && a.tab && a.id)
     .map((a) => ({ id: `addon:${a.id}`, label: a.tab!.label, addon: a.id!, page: a.tab!.page })),
 )
-const TABS = computed(() => [...APP_TABS, ...addonTabs.value, { id: 'settings', label: 'Settings' }])
+const TABS = computed(() => [...appTabs.value, ...addonTabs.value, { id: 'settings', label: 'Settings' }])
 const tab = ref<string>('collection')
 const addonTab = computed(() => addonTabs.value.find((t) => t.id === tab.value) ?? null)
 // An addon tab asked for (after an update restart) before the addons are known: shown once they are.
@@ -37,6 +40,10 @@ watch(addonTabs, () => {
     tab.value = wanted
     wanted = null
   } else if (tab.value.startsWith('addon:') && !addonTab.value) tab.value = 'collection'
+})
+// A built-in addon switched off while its tab is open (in Settings, so rarely): back to the collection.
+watch(appTabs, () => {
+  if (APP_TABS.some((t) => t.id === tab.value) && !appTabs.value.some((t) => t.id === tab.value)) tab.value = 'collection'
 })
 // Main keeps the tab, so an update restart reopens the panel where it was.
 watch(tab, (t) => void bridge().invoke('panel:tab', t), { immediate: true })
@@ -67,6 +74,7 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   offShowPet = bridge().on('panel:showPet', (pet) => store.openPet(pet))
   offShowTimers = bridge().on('panel:showTimers', (ids) => {
+    if (!builtinOn(store.settings.addons.enabled, 'timers')) return
     store.openPet(null)
     tab.value = 'timers'
     store.timerFocus = { ids, at: Date.now() }

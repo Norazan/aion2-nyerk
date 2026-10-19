@@ -6,6 +6,8 @@
  *   hud       #/hud       the in-game overlay: click-through, sized to its content
  *   merchant  #/merchant  the Black Cloud Merchant's pets worth buying: opened when a tab of the
  *                         shop is, always movable, closed with its X
+ *   addonhud  #/addonhud/<id>  an addon's HUD section detached from the HUD: a HUD of its own,
+ *                         click-through, sized to its content, moved like the HUD
  *
  * Overlay rules carried over from marnis-app (docs/09 there): 'screen-saver' level so they sit
  * above a borderless game (exclusive fullscreen cannot be drawn over by anything), shown with
@@ -18,6 +20,7 @@
 import { app, BrowserWindow, screen, shell, type Rectangle } from 'electron'
 import { join } from 'node:path'
 import { broadcast } from './broadcast.ts'
+import { featureOn } from './builtins.ts'
 import { settings } from './settings.ts'
 import { tracker } from './tracker.ts'
 import type { EventChannels } from '../shared/ipc.ts'
@@ -285,24 +288,34 @@ export function createHud(): BrowserWindow {
     refreshHud()
   })
   load(win, 'hud')
+  for (const id of addonHudIds) createAddonHud(id)
   return win
 }
 
-/** Show or hide the HUD, apply mouse mode and size. Cheap when nothing changed. */
-export function refreshHud(): void {
-  if (!alive(hud)) return
+/** Whether a HUD with this much to show is shown: in move mode always, else by the HUD's settings. */
+function hudWanted(size: { width: number; height: number }): boolean {
   const cfg = settings.get('hud')
   const status = tracker.status()
-  const wanted =
-    hudEditing || (cfg.enabled && hudSize.height > 0 && (!cfg.hideWithoutGame || status.gameActive || status.replay))
-  if (hudSize.width > 0 && hudSize.height > 0) {
-    const p = hudPosition()
-    const next = clampToDisplay({ x: p.x, y: p.y, width: hudSize.width, height: hudSize.height })
-    const now = hud.getBounds()
-    if (next.x !== now.x || next.y !== now.y || next.width !== now.width || next.height !== now.height) hud.setBounds(next)
+  return hudEditing || (cfg.enabled && size.height > 0 && (!cfg.hideWithoutGame || status.gameActive || status.replay))
+}
+
+/** Size a HUD window to what it shows, at its place, and show or hide it. */
+function placeHud(win: BrowserWindow, size: { width: number; height: number }, p: Point): void {
+  if (size.width > 0 && size.height > 0) {
+    const next = clampToDisplay({ x: p.x, y: p.y, width: size.width, height: size.height })
+    const now = win.getBounds()
+    if (next.x !== now.x || next.y !== now.y || next.width !== now.width || next.height !== now.height) win.setBounds(next)
   }
-  if (wanted && !hud.isVisible()) hud.showInactive()
-  if (!wanted && hud.isVisible()) hud.hide()
+  const wanted = hudWanted(size)
+  if (wanted && !win.isVisible()) win.showInactive()
+  if (!wanted && win.isVisible()) win.hide()
+}
+
+/** Show or hide the HUD (and the addons' detached ones), apply mouse mode and size. Cheap when nothing changed. */
+export function refreshHud(): void {
+  for (const id of addonHuds.keys()) refreshAddonHud(id)
+  if (!alive(hud)) return
+  placeHud(hud, hudSize, hudPosition())
 }
 
 export function resizeHud(size: { width: number; height: number }): void {
@@ -317,9 +330,12 @@ export function resizeHud(size: { width: number; height: number }): void {
 export function setHudEditing(editing: boolean, focus = true): void {
   if (!alive(hud) || hudEditing === editing) return
   hudEditing = editing
-  // Edit mode is the only time the HUD takes the mouse: click-through the rest of the time.
-  hud.setIgnoreMouseEvents(!editing)
-  hud.setFocusable(editing)
+  // Edit mode is the only time the HUDs take the mouse: click-through the rest of the time.
+  for (const win of [hud, ...addonHudWindows()]) {
+    if (!alive(win)) continue
+    win.setIgnoreMouseEvents(!editing)
+    win.setFocusable(editing)
+  }
   if (editing) {
     refreshHud()
     if (focus) hud.focus()
@@ -342,6 +358,85 @@ export function hudDragEnded(): void {
   if (!alive(hud)) return
   const { x, y } = hud.getBounds()
   settings.set('hud', { ...settings.get('hud'), position: { x, y } })
+}
+
+// ---- addons' detached HUDs ------------------------------------------------------------------
+
+const ADDON_HUD_WIDTH = 332
+
+/** The addons whose HUD section is detached (main/addons.ts), and their windows while the game runs. */
+let addonHudIds: string[] = []
+const addonHuds = new Map<string, { win: BrowserWindow; size: { width: number; height: number } }>()
+const addonHudWindows = (): BrowserWindow[] => [...addonHuds.values()].map((h) => h.win)
+
+function addonHudPosition(id: string): Point {
+  const saved = settings.get('addons').hud[id]?.position
+  if (saved) return saved
+  // Below where the HUD starts, so a first detach does not land on top of it.
+  const area = screen.getPrimaryDisplay().workArea
+  return { x: area.x + area.width - ADDON_HUD_WIDTH - EDGE, y: area.y + 420 }
+}
+
+function createAddonHud(id: string): void {
+  if (addonHuds.has(id)) return
+  const p = addonHudPosition(id)
+  const win = overlayWindow({ x: p.x, y: p.y, width: ADDON_HUD_WIDTH, height: 60, focusable: hudEditing })
+  win.setIgnoreMouseEvents(!hudEditing)
+  addonHuds.set(id, { win, size: { width: 0, height: 0 } })
+  win.on('closed', () => {
+    if (addonHuds.get(id)?.win === win) addonHuds.delete(id)
+  })
+  // Made while the HUD is in move mode (detached with the panel open): its page is told so.
+  win.webContents.once('did-finish-load', () => {
+    if (alive(win)) win.webContents.send('hud:editing', hudEditing)
+  })
+  load(win, `addonhud/${id}`)
+}
+
+function destroyAddonHud(id: string): void {
+  const h = addonHuds.get(id)
+  addonHuds.delete(id)
+  if (h && alive(h.win)) h.win.destroy()
+}
+
+/** Which addons have a detached HUD. Their windows exist while the HUD does (the game running). */
+export function setAddonHuds(ids: string[]): void {
+  addonHudIds = ids
+  for (const id of [...addonHuds.keys()]) if (!ids.includes(id)) destroyAddonHud(id)
+  if (alive(hud)) for (const id of ids) createAddonHud(id)
+}
+
+function refreshAddonHud(id: string): void {
+  const h = addonHuds.get(id)
+  if (h && alive(h.win)) placeHud(h.win, h.size, addonHudPosition(id))
+}
+
+export function resizeAddonHud(id: string, size: { width: number; height: number }): void {
+  const h = addonHuds.get(id)
+  if (!h) return
+  h.size = { width: Math.ceil(size.width), height: Math.ceil(size.height) }
+  refreshAddonHud(id)
+}
+
+export function moveAddonHud(id: string, to: Point): void {
+  const h = addonHuds.get(id)
+  if (!h || !alive(h.win)) return
+  const { width, height } = h.win.getBounds()
+  h.win.setBounds(clampToDisplay({ x: to.x, y: to.y, width, height }))
+}
+
+/** Where it was dropped, kept with the addon's HUD place: it comes back there after a restart. */
+export function addonHudDragEnded(id: string): void {
+  const h = addonHuds.get(id)
+  if (!h || !alive(h.win)) return
+  const { x, y } = h.win.getBounds()
+  saveAddonHudPosition(id, { x, y })
+}
+
+function saveAddonHudPosition(id: string, position: Point): void {
+  const stored = settings.get('addons')
+  const place = stored.hud[id]
+  if (place) settings.set('addons', { ...stored, hud: { ...stored.hud, [id]: { ...place, position } } })
 }
 
 // ---- merchant -------------------------------------------------------------------------------
@@ -420,9 +515,9 @@ function killFeedPosition(): Point {
   return { x: area.x + area.width - KILL_FEED_WIDTH - 24, y: area.y + 120 }
 }
 
-/** The kill feed window, if the PvP Log has it open: made with the other overlays. */
+/** The kill feed window, if the PvP Log has it open (and is on): made with the other overlays. */
 export function createKillFeed(): void {
-  if (!settings.get('killFeed').open || alive(killFeed)) return
+  if (!featureOn('pvp-log') || !settings.get('killFeed').open || alive(killFeed)) return
   const p = killFeedPosition()
   const win = overlayWindow({ x: p.x, y: p.y, width: KILL_FEED_WIDTH, height: 40 })
   killFeed = win
@@ -475,6 +570,10 @@ export function saveWindowPlaces(): void {
   if (m && settings.get('merchantWindow')) settings.set('merchantWindow', m)
   const k = at(killFeed)
   if (k && settings.get('killFeed').position) settings.set('killFeed', { ...settings.get('killFeed'), position: k })
+  for (const [id, h] of addonHuds) {
+    const p = at(h.win)
+    if (p && settings.get('addons').hud[id]?.position) saveAddonHudPosition(id, p)
+  }
 }
 
 const ON_TOP_EVERY_MS = 5_000
@@ -488,7 +587,7 @@ const ON_TOP_EVERY_MS = 5_000
  */
 export function startOnTopWatch(): void {
   setInterval(() => {
-    for (const win of [bubble, hud, merchant, killFeed]) {
+    for (const win of [bubble, hud, merchant, killFeed, ...addonHudWindows()]) {
       if (!alive(win) || !win.isVisible()) continue
       win.setAlwaysOnTop(true, 'screen-saver')
       win.moveTop()
@@ -499,8 +598,13 @@ export function startOnTopWatch(): void {
 /** Settings that change how the windows behave, applied live. */
 export function applyWindowSettings(): void {
   const hidden = settings.get('hideFromCapture')
-  for (const w of [bubble, panel, hud, merchant, killFeed]) if (alive(w)) w.setContentProtection(hidden)
+  for (const w of [bubble, panel, hud, merchant, killFeed, ...addonHudWindows()]) if (alive(w)) w.setContentProtection(hidden)
   if (!settings.get('hud').merchant) closeMerchant()
+  // The PvP Log addon switched off or on: its kill feed goes, or comes back while the overlays show.
+  if (!featureOn('pvp-log') && alive(killFeed)) {
+    killFeed.destroy()
+    killFeed = null
+  } else if (alive(bubble)) createKillFeed()
   if (alive(panel)) {
     const onTop = settings.get('panelOnTop')
     panel.setAlwaysOnTop(onTop, 'screen-saver')
@@ -514,7 +618,8 @@ export function applyWindowSettings(): void {
  * is only hidden keeps its renderer process. An open panel stays open.
  */
 export function closeOverlays(): void {
-  for (const win of [bubble, hud, merchant, killFeed]) if (alive(win)) win.destroy()
+  for (const win of [bubble, hud, merchant, killFeed, ...addonHudWindows()]) if (alive(win)) win.destroy()
+  addonHuds.clear()
   bubble = null
   hud = null
   merchant = null
@@ -565,6 +670,12 @@ export function rebuildWindow(win: BrowserWindow): string | null {
     killFeed = null
     createKillFeed()
     return 'killfeed'
+  }
+  for (const [id, h] of addonHuds) {
+    if (h.win !== win) continue
+    destroyAddonHud(id)
+    createAddonHud(id)
+    return `addonhud/${id}`
   }
   if (win === panel) {
     const visible = win.isVisible()

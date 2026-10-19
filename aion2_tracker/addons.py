@@ -28,9 +28,9 @@ A hook that raises is logged; one that keeps raising (MAX_ERRORS) is switched of
 told, so a broken addon costs a line in the log rather than the tracker.
 
 Lines out (the protocol's stdout):
-    {"type": "addonLoaded", "addon": "nearby-nodes"}
-    {"type": "addonError", "addon": "nearby-nodes", "detail": "...", "fatal": bool}
-    {"type": "addon", "addon": "nearby-nodes", "name": "nodes", "data": ...}
+    {"type": "addonLoaded", "addon": "example"}
+    {"type": "addonError", "addon": "example", "detail": "...", "fatal": bool}
+    {"type": "addon", "addon": "example", "name": "nodes", "data": ...}
 """
 
 from __future__ import annotations

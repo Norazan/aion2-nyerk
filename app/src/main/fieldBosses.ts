@@ -7,6 +7,7 @@
  *   crowd's confirmed state for that server is read back every POLL_MS while the game runs. The
  *   server serves a state only once several machines agree on it (server/aion2-api); the newer of
  *   the map's and the crowd's wins, boss by boss.
+ * - Sharing is part of the Timers addon: nothing is sent or read while it is switched off.
  * - A "banned" answer stops sharing until the app restarts: nothing is asked again.
  *
  * Kept across restarts in `<userData>/fieldbosses.json`, by game server (a respawn 12 h away
@@ -16,6 +17,7 @@ import { app } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { broadcast } from './broadcast.ts'
+import { featureOn } from './builtins.ts'
 import { game } from './game.ts'
 import { machineHash } from './machine.ts'
 import { settings } from './settings.ts'
@@ -97,7 +99,7 @@ export const fieldBosses = {
 // A replay (A2T_REPLAY) never shares with the real server: its lists are old, and a trusted
 // address would have them served to everyone. Only with A2T_API, a test server.
 const replayOnly = Boolean(process.env['A2T_REPLAY']) && !process.env['A2T_API']
-const sharing = (): boolean => !banned && !replayOnly && settings.get('timers').share && server !== null
+const sharing = (): boolean => !banned && !replayOnly && featureOn('timers') && settings.get('timers').share && server !== null
 
 function headers(): Record<string, string> {
   return { 'X-A2-Machine': machineHash(), 'User-Agent': `Nyerk/${app.getVersion()}` }

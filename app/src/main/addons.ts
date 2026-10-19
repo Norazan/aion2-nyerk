@@ -1,12 +1,16 @@
 /**
- * Addons, main's side: the folder `<userData>/addons` (beside settings.json), which addons are
- * switched on, and everything they run (the design: shared/addons.ts).
+ * Addons, main's side: the folder `<userData>/addons` (beside settings.json), the addons that come
+ * with Nyerk (app/addons/, copied to out/addons by the build), which addons are switched on, and
+ * everything they run (the design: shared/addons.ts).
  *
+ * - **Built-in addons** (the PvP Log, the Timers) run the app's own code; main/builtins.ts tells
+ *   that code whether they are on. An addon in the folder with one of their ids is not loaded.
  * - **Python parts** go to the tracker helper as `--addon <id>=<file>` (aion2_tracker/addons.py);
  *   switching one on or off, or a reload, restarts the helper with the session carried across.
  * - **Web parts** load from `nyerk-addon://<id>/`, served here from the addon's own folder only,
  *   with a CSP that limits their connections to the hosts they declare. Tabs are frames in the
- *   panel; background scripts are frames in a hidden window (windows.ts setAddonHost).
+ *   panel, HUD sections frames in the HUD; background scripts are frames in a hidden window
+ *   (windows.ts setAddonHost).
  * - Every frame's call comes through `addons:call`, relayed by the window holding it, and is
  *   checked here against the addon's permissions. The app's events reach an addon only where a
  *   permission allows (ADDON_EVENTS), through the broadcast tap.
@@ -36,7 +40,7 @@ import { SDK_CSS, SDK_JS } from './addonSdk.ts'
 import { broadcast, tapBroadcast } from './broadcast.ts'
 import { settings } from './settings.ts'
 import { log, tracker } from './tracker.ts'
-import { setAddonHost } from './windows.ts'
+import { setAddonHost, setAddonHuds } from './windows.ts'
 
 /** Saving a file fires several events: look once they have settled. */
 const WATCH_SETTLE_MS = 1000
@@ -58,6 +62,14 @@ const storage = new Map<string, Record<string, unknown>>()
 const lastNotify = new Map<string, number>()
 
 export const addonsFolder = (): string => join(app.getPath('userData'), 'addons')
+
+/** The addons that come with Nyerk: out/addons in a build or a bundle, app/addons in a dev run. */
+function bundledFolder(): string {
+  const built = join(__dirname, '../addons')
+  return existsSync(built) ? built : join(__dirname, '../../addons')
+}
+/** The folder an addon's files are in. */
+const rootOf = (a: AddonInfo): string => join(a.bundled ? bundledFolder() : addonsFolder(), a.folder)
 const dataFolder = (id: string): string => join(app.getPath('userData'), 'addon-data', id)
 
 // ---- the folder -----------------------------------------------------------------------------
@@ -91,14 +103,29 @@ function readFolder(dir: string): FoundFolder[] {
 }
 
 function look(): AddonInfo[] {
-  const dir = addonsFolder()
   const stored = settings.get('addons')
-  return resolveAddons(readFolder(dir), stored.enabled, (folder, path) => existsSync(join(dir, folder, path)), undefined, stored.values)
+  const from = (dir: string, bundled: boolean): AddonInfo[] =>
+    resolveAddons(readFolder(dir), stored.enabled, (folder, path) => existsSync(join(dir, folder, path)), undefined, stored.values, bundled)
+  const included = from(bundledFolder(), true)
+  const ids = new Set(included.map((a) => a.id).filter(Boolean))
+  const own = from(addonsFolder(), false).map((a): AddonInfo =>
+    a.id && ids.has(a.id) ? { ...a, state: 'invalid', isNew: false, problem: `Nyerk already includes an addon with its id (${a.id})` } : a,
+  )
+  return [...included, ...own]
+}
+
+/** Its HUD section as its page left it (nyerk.hud.show, .detach): hidden until it says otherwise. */
+const hudPlace = (id: string | null): { shown: boolean; detached: boolean } => {
+  const h = id ? settings.get('addons').hud[id] : undefined
+  return { shown: h?.shown === true, detached: h?.detached === true }
 }
 
 const status = (): AddonsStatus => ({
   folder: addonsFolder(),
-  addons: list.map((a) => ({ ...a, error: (a.id && errors.get(a.id)) || null })),
+  addons: list.map((a) => {
+    const h = hudPlace(a.id)
+    return { ...a, hudShown: !!a.hud && h.shown, hudDetached: !!a.hud && h.detached, error: (a.id && errors.get(a.id)) || null }
+  }),
   changed,
   generation,
 })
@@ -120,8 +147,12 @@ function scan(): void {
     settings.set('addons', { ...stored, enabled })
   }
   const on = list.filter((a) => a.state === 'on').length
+  const builtinOff = list.filter((a) => a.builtin && a.state === 'off').map((a) => a.id)
   const problems = list.filter((a) => a.problem).map((a) => `${a.folder}: ${a.problem}`)
-  log(`addons: ${list.length} found, ${on} on${problems.length ? `; ${problems.join('; ')}` : ''}`)
+  log(
+    `addons: ${list.length} found, ${on} on${builtinOff.length ? ` (switched off: ${builtinOff.join(', ')})` : ''}` +
+      (problems.length ? `; ${problems.join('; ')}` : ''),
+  )
 }
 
 /** The folder changed on disk: if a look now differs from what was loaded, say a reload would help. */
@@ -156,7 +187,7 @@ function startWatch(): void {
 
 /** `--addon <id>=<file>` for each Python part switched on. */
 function sidecarArgs(): string[] {
-  return list.filter((a) => a.state === 'on' && a.sidecar && a.id).flatMap((a) => ['--addon', `${a.id}=${join(addonsFolder(), a.folder, a.sidecar!)}`])
+  return list.filter((a) => a.state === 'on' && a.sidecar && a.id).flatMap((a) => ['--addon', `${a.id}=${join(rootOf(a), a.sidecar!)}`])
 }
 
 /** What the helper was last started with, to tell when it must start again. */
@@ -176,6 +207,27 @@ function apply(restartHelper: boolean): void {
     void tracker.restartKeepingSession()
   }
   setAddonHost(list.some((a) => a.state === 'on' && a.background))
+  syncAddonHuds()
+}
+
+/** The detached HUD sections get their windows (made with the other overlays, while the game runs). */
+function syncAddonHuds(): void {
+  setAddonHuds(list.filter((a) => a.state === 'on' && a.id && a.hud && hudPlace(a.id).shown && hudPlace(a.id).detached).map((a) => a.id!))
+}
+
+/** Its page shows, hides, detaches or docks its HUD section. */
+function setHudPlace(addon: AddonInfo, change: { shown?: boolean; detached?: boolean }): { shown: boolean; detached: boolean } {
+  if (!addon.hud) throw new Error('it has no HUD section ("hud" in its manifest)')
+  const id = addon.id!
+  const stored = settings.get('addons')
+  const before = stored.hud[id] ?? { shown: false, detached: false, position: null }
+  const next = { ...before, ...change }
+  settings.set('addons', { ...stored, hud: { ...stored.hud, [id]: next } })
+  const place = { shown: next.shown, detached: next.detached }
+  broadcast('addons:event', { addon: id, name: 'hud', data: place })
+  syncAddonHuds()
+  announce()
+  return place
 }
 
 /** Shown on its card; `logged` when the full story is already in the log. */
@@ -214,14 +266,21 @@ function onBroadcast(channel: EventChannel, payload: unknown): void {
   const event = (ADDON_EVENTS as Partial<Record<EventChannel, { name: string; permission: AddonPermission }>>)[channel]
   if (!event) return
   for (const addon of list) {
-    if (addon.state === 'on' && addon.id && (addon.tab || addon.background) && allowed(addon, event.permission)) {
+    if (addon.state === 'on' && addon.id && (addon.tab || addon.background || addon.hud) && allowed(addon, event.permission)) {
       broadcast('addons:event', { addon: addon.id, name: event.name, data: payload })
     }
   }
 }
 
-/** What a frame starts from: the app's state it may see, its Python part's latest, its settings. */
-function snapshot(addon: AddonInfo): { events: { name: string; data: unknown }[]; settings: AddonInfo['values'] } {
+/**
+ * What a frame starts from: the app's state it may see, its Python part's latest, its settings,
+ * and whether its HUD section is shown (null: it has none).
+ */
+function snapshot(addon: AddonInfo): {
+  events: { name: string; data: unknown }[]
+  settings: AddonInfo['values']
+  hud: { shown: boolean; detached: boolean } | null
+} {
   const state: [AddonPermission, string, () => unknown][] = [
     ['events:status', 'status', () => tracker.status()],
     ['events:pets', 'pets', () => tracker.pets()],
@@ -233,7 +292,7 @@ function snapshot(addon: AddonInfo): { events: { name: string; data: unknown }[]
   ]
   const events = state.filter(([p]) => allowed(addon, p)).map(([, name, get]) => ({ name, data: get() }))
   for (const [name, data] of emitted.get(addon.id!) ?? []) events.push({ name, data })
-  return { events, settings: addon.values }
+  return { events, settings: addon.values, hud: addon.hud ? hudPlace(addon.id) : null }
 }
 
 function storageOf(id: string): Record<string, unknown> {
@@ -289,6 +348,10 @@ function call(id: string, method: string, args: unknown[]): unknown {
       }
       return null
     }
+    case 'hud.show':
+      return setHudPlace(addon, { shown: args[0] === true })
+    case 'hud.detach':
+      return setHudPlace(addon, { detached: args[0] === true })
     case 'storage.get':
       need(addon, 'storage')
       return storageOf(id)[String(args[0])] ?? null
@@ -301,6 +364,8 @@ function call(id: string, method: string, args: unknown[]): unknown {
       if (args[1] === undefined || args[1] === null) delete data[String(args[0])]
       else data[String(args[0])] = args[1]
       saveStorage(id, data)
+      // Its other pages (a tab and its HUD section) hear of it, and keep in step.
+      broadcast('addons:event', { addon: id, name: 'storage', data: { key: String(args[0]), value: args[1] ?? null } })
       return null
     }
   }
@@ -393,7 +458,7 @@ function serve(request: Request): Response {
   }
   const safe = addonPath(path, '')
   if (!safe) return notFound()
-  const root = resolve(addonsFolder(), addon.folder)
+  const root = resolve(rootOf(addon))
   const file = resolve(root, safe)
   if (!file.startsWith(root + sep)) return notFound()
   try {

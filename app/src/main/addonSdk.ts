@@ -11,7 +11,12 @@
  *   nyerk.notify()           chime and pulse the bubble ('notify')
  *   nyerk.storage            get(key) / set(key, value) / all(): its own JSON ('storage')
  *   nyerk.settings           its declared settings' values, kept current
+ *   nyerk.hud                its HUD section: shown and detached (null when it has none), show(on),
+ *                            detach(on) (a window of its own, moved like the HUD); the 'hud' event
+ *                            ({ shown, detached }) says when either changes
+ *   nyerk.on('storage', fn)  { key, value }: its storage changed (from any of its pages)
  *   nyerk.ready              a promise, once the first snapshot is in
+ * Every page also posts its height to the window holding it, which a HUD section is sized by.
  * Errors thrown in the page go to the app's log and the addon's card in Settings.
  */
 
@@ -34,6 +39,10 @@ export const SDK_JS = String.raw`(() => {
   }
   const deliver = (name, data) => {
     if (name === 'settings') nyerk.settings = data
+    if (name === 'hud' && data) {
+      nyerk.hud.shown = data.shown
+      nyerk.hud.detached = data.detached
+    }
     if (latest.has(name)) latest.set(name, data)
     for (const fn of listeners.get(name) ?? []) {
       try {
@@ -75,21 +84,59 @@ export const SDK_JS = String.raw`(() => {
       set: (key, value) => call('storage.set', key, value),
       all: () => call('storage.all'),
     },
+    hud: {
+      shown: null,
+      detached: null,
+      show: (on) => call('hud.show', on === true),
+      detach: (on) => call('hud.detach', on === true),
+    },
   }
   window.nyerk = nyerk
+
+  // The page's height, for a frame sized to what it shows (the HUD's). A MutationObserver, not
+  // only a ResizeObserver: the HUD window is hidden while empty, and a hidden window does not
+  // run ResizeObservers, so its first content would never show it.
+  let sentHeight = -1
+  const sendHeight = () => {
+    const height = Math.ceil(document.documentElement.getBoundingClientRect().height)
+    if (height === sentHeight) return
+    sentHeight = height
+    parent.postMessage({ nyerk: 1, kind: 'size', height }, '*')
+  }
+  let sizeQueued = false
+  const queueHeight = () => {
+    if (sizeQueued) return
+    sizeQueued = true
+    queueMicrotask(() => {
+      sizeQueued = false
+      sendHeight()
+    })
+  }
+  const watchSize = () => {
+    new MutationObserver(queueHeight).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true })
+    new ResizeObserver(queueHeight).observe(document.documentElement)
+    addEventListener('load', queueHeight)
+    document.fonts?.addEventListener('loadingdone', queueHeight)
+    sendHeight()
+  }
 
   // Once the page's own scripts have run (and set up their listeners): the state as it is now.
   const start = () =>
     setTimeout(() =>
       call('ready').then((snapshot) => {
         nyerk.settings = snapshot.settings
+        if (snapshot.hud) snapshot.events.push({ name: 'hud', data: snapshot.hud })
         for (const { name } of snapshot.events) latest.set(name, undefined)
         for (const { name, data } of snapshot.events) deliver(name, data)
         resolveReady(nyerk)
       }, report),
     )
-  if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start, { once: true })
-  else start()
+  const begin = () => {
+    watchSize()
+    start()
+  }
+  if (document.readyState === 'loading') addEventListener('DOMContentLoaded', begin, { once: true })
+  else begin()
 })()
 `
 

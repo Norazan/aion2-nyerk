@@ -4,16 +4,20 @@
  * and whether it may run, and the Settings tab shows the result.
  *
  * Two kinds of code, two trust levels:
- * - the web parts (`background`, `tab`) run sandboxed, with only the permissions they declare;
+ * - the web parts (`background`, `tab`, `hud`) run sandboxed, with only the permissions they declare;
  * - the Python part (`sidecar`) runs inside the tracker helper with its full access, so a feature
  *   that needs packets the public helper does not decode can still be an addon.
+ *
+ * Some addons come with Nyerk (app/addons/, BUILTIN_ADDONS): their manifest says `"builtin": true`
+ * and the app's own code does the work, switched on until the user switches it off. They make the
+ * app's optional features (the PvP Log, the Timers) switchable like any other addon.
  *
  * `ADDON_API_VERSION` is the contract an addon's `nyerk` range is checked against. Its major
  * version changes only when something addons rely on stops working the same way.
  */
 import { compareVersions } from './bundle.ts'
 
-export const ADDON_API_VERSION = '1.0.0'
+export const ADDON_API_VERSION = '1.1.0'
 
 /**
  * Addons' pages load from `nyerk-addon://<id>/<path>`, and the SDK from the same origin, under
@@ -50,6 +54,17 @@ export const ADDON_PERMISSIONS = {
 
 export type AddonPermission = keyof typeof ADDON_PERMISSIONS
 
+/**
+ * The app's features that come as addons, by id. Their code is the app's own; the addon is what
+ * switches it on or off. On until switched off, so a profile from before them keeps every feature.
+ */
+export const BUILTIN_ADDONS = ['pvp-log', 'timers'] as const
+export type BuiltinAddon = (typeof BUILTIN_ADDONS)[number]
+const isBuiltinId = (id: string): id is BuiltinAddon => (BUILTIN_ADDONS as readonly string[]).includes(id)
+
+/** Whether a built-in addon is on, from the user's choices (`Settings.addons.enabled`). */
+export const builtinOn = (enabled: Record<string, boolean>, id: BuiltinAddon): boolean => enabled[id] !== false
+
 export const isAddonId = (v: unknown): v is string => typeof v === 'string' && ID.test(v)
 
 /**
@@ -72,7 +87,7 @@ export const ADDON_EVENTS = {
 } as const satisfies Record<string, { name: string; permission: AddonPermission }>
 
 /** Names an addon's Python part may not emit under: they are the app's. */
-export const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([...Object.values(ADDON_EVENTS).map((e) => e.name), 'settings'])
+export const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([...Object.values(ADDON_EVENTS).map((e) => e.name), 'settings', 'hud', 'storage'])
 
 /** A setting an addon declares; the Settings tab draws it under the addon. */
 export type AddonSettingDef =
@@ -149,10 +164,14 @@ export interface AddonManifest {
   sidecar: string | null
   background: string | null
   tab: { label: string; page: string } | null
+  /** A section of the HUD: a page drawn in the overlay, below the app's own, while it is shown. */
+  hud: { page: string } | null
   permissions: AddonPermission[]
   /** Origins its web parts may connect to (`https://host[:port]`). */
   network: string[]
   settings: AddonSettingDef[]
+  /** Its work is done by the app's own code (one of BUILTIN_ADDONS, included with Nyerk only). */
+  builtin: boolean
 }
 
 export type ManifestResult =
@@ -202,8 +221,11 @@ function origin(v: unknown): string | null {
   }
 }
 
-/** Read a manifest.json. Its problems are worded for the Settings tab. */
-export function parseManifest(source: string, api: string = ADDON_API_VERSION): ManifestResult {
+/**
+ * Read a manifest.json. Its problems are worded for the Settings tab. `bundled`: it came with Nyerk
+ * (app/addons/), so it may be built in.
+ */
+export function parseManifest(source: string, api: string = ADDON_API_VERSION, bundled = false): ManifestResult {
   let raw: unknown
   try {
     // Notepad and PowerShell save UTF-8 with a byte order mark, which JSON.parse refuses.
@@ -240,7 +262,19 @@ export function parseManifest(source: string, api: string = ADDON_API_VERSION): 
     if (!label || !page) return fail('its tab needs a label and an .html page inside its folder')
     tab = { label, page }
   }
-  if (!sidecar && !background && !tab) return fail('it has nothing to run: no sidecar, background or tab')
+  let hud: AddonManifest['hud'] = null
+  if (m['hud'] !== undefined) {
+    const h = (typeof m['hud'] === 'object' && m['hud'] !== null ? m['hud'] : {}) as Record<string, unknown>
+    const page = addonPath(h['page'], '.html')
+    if (!page) return fail('its hud needs an .html page inside its folder')
+    hud = { page }
+  }
+  const builtin = m['builtin'] === true
+  if (m['builtin'] !== undefined && !builtin) return fail('its builtin must be true when it is there')
+  if (builtin && !bundled) return fail('only the addons included with Nyerk can be built in')
+  if (builtin && !isBuiltinId(id)) return fail(`Nyerk has no built-in feature called ${id}`)
+  if (builtin && (sidecar || background || tab || hud)) return fail("a built-in addon runs the app's own code: no sidecar, background, tab or hud")
+  if (!sidecar && !background && !tab && !hud && !builtin) return fail('it has nothing to run: no sidecar, background, tab or hud')
 
   const permissions: AddonPermission[] = []
   for (const p of Array.isArray(m['permissions']) ? m['permissions'] : m['permissions'] === undefined ? [] : [null]) {
@@ -276,9 +310,11 @@ export function parseManifest(source: string, api: string = ADDON_API_VERSION): 
       sidecar,
       background,
       tab,
+      hud,
       permissions,
       network,
       settings,
+      builtin,
     },
   }
 }
@@ -303,6 +339,13 @@ export interface AddonInfo {
   network: string[]
   /** The panel tab it adds, if any. */
   tab: { label: string; page: string } | null
+  /**
+   * Its HUD section, if any; whether it is shown, and detached into a window of its own (its page
+   * switches both: nyerk.hud.show, nyerk.hud.detach).
+   */
+  hud: { page: string } | null
+  hudShown: boolean
+  hudDetached: boolean
   /** Its background script, if any. */
   background: string | null
   /** Its Python part, if any (inside its folder). */
@@ -312,6 +355,10 @@ export interface AddonInfo {
   values: Record<string, AddonSettingValue>
   /** What went wrong while it ran (set by main, cleared by a reload). */
   error: string | null
+  /** It came with Nyerk (app/addons/), not from the addons folder. */
+  bundled: boolean
+  /** Its work is done by the app's own code (BUILTIN_ADDONS): on unless switched off. */
+  builtin: boolean
 }
 
 export interface AddonsStatus {
@@ -341,7 +388,8 @@ export interface FoundFolder {
 /**
  * Every folder found, as addons: their state from the user's choices (`enabled`, by id), the first
  * folder with an id winning over later ones (by name), and the files each names checked with
- * `exists(folder, path)`.
+ * `exists(folder, path)`. `bundled`: these folders came with Nyerk (app/addons/), so they may be
+ * built in, and are never new.
  */
 export function resolveAddons(
   found: FoundFolder[],
@@ -349,6 +397,7 @@ export function resolveAddons(
   exists: (folder: string, path: string) => boolean,
   api: string = ADDON_API_VERSION,
   stored: Record<string, Record<string, unknown>> = {},
+  bundled = false,
 ): AddonInfo[] {
   const taken = new Map<string, string>()
   const out: AddonInfo[] = []
@@ -367,17 +416,22 @@ export function resolveAddons(
       permissions: [],
       network: [],
       tab: null,
+      hud: null,
+      hudShown: false,
+      hudDetached: false,
       background: null,
       sidecar: null,
       settings: [],
       values: {},
       error: null,
+      bundled,
+      builtin: false,
     }
     if (f.manifest === null) {
       out.push({ ...blank, problem: f.error ?? `there is no ${MANIFEST_FILE} in it` })
       continue
     }
-    const parsed = parseManifest(f.manifest, api)
+    const parsed = parseManifest(f.manifest, api, bundled)
     if (!parsed.ok) {
       out.push({
         ...blank,
@@ -401,21 +455,26 @@ export function resolveAddons(
       permissions: m.permissions,
       network: m.network,
       tab: m.tab,
+      hud: m.hud,
       background: m.background,
       sidecar: m.sidecar,
       settings: m.settings,
       values: settingValues(m.settings, stored[m.id]),
+      builtin: m.builtin,
     }
-    const missing = [m.sidecar, m.background, m.tab?.page].find((p) => p && !exists(f.folder, p))
+    const missing = [m.sidecar, m.background, m.tab?.page, m.hud?.page].find((p) => p && !exists(f.folder, p))
     const twin = taken.get(m.id)
     if (twin) {
       out.push({ ...info, state: 'invalid', problem: `the folder ${twin} has the same id (${m.id})` })
     } else if (missing) {
       taken.set(m.id, f.folder)
       out.push({ ...info, state: 'invalid', problem: `${missing} is missing` })
+    } else if (m.builtin) {
+      taken.set(m.id, f.folder)
+      out.push({ ...info, state: builtinOn(enabled, m.id as BuiltinAddon) ? 'on' : 'off' })
     } else {
       taken.set(m.id, f.folder)
-      out.push({ ...info, state: enabled[m.id] === true ? 'on' : 'off', isNew: !(m.id in enabled) })
+      out.push({ ...info, state: enabled[m.id] === true ? 'on' : 'off', isNew: !bundled && !(m.id in enabled) })
     }
   }
   return out

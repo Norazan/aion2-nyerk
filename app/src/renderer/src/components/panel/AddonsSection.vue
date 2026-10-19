@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Settings → Addons: the addons folder, a reload, and each addon found there with its switch and
-// the settings it declares. Switching one on asks first, listing what it may do.
+// the settings it declares. Switching one on asks first, listing what it may do. The addons that
+// come with Nyerk (the PvP Log, the Timers) are listed first, and switch without asking.
 import { computed, ref } from 'vue'
 import Button from '@/components/Button.vue'
 import SettingRow from '@/components/SettingRow.vue'
@@ -28,8 +29,8 @@ async function reload(): Promise<void> {
 
 function toggle(addon: AddonInfo, on: boolean): void {
   if (!addon.id) return
-  if (on) confirming.value = addon.id
-  else void bridge().invoke('addons:setEnabled', addon.id, false)
+  if (on && !addon.builtin) confirming.value = addon.id
+  else void bridge().invoke('addons:setEnabled', addon.id, on)
 }
 
 function confirm(addon: AddonInfo): void {
@@ -41,7 +42,7 @@ const setSetting = (addon: AddonInfo, key: string, value: unknown): void => {
   if (addon.id) void bridge().invoke('addons:setSetting', addon.id, key, value)
 }
 
-const found = (n: number): string => (n === 0 ? 'No addons found.' : n === 1 ? '1 addon found.' : `${n} addons found.`)
+const found = (n: number): string => (n === 0 ? 'No addons in the folder.' : n === 1 ? '1 addon in the folder.' : `${n} addons in the folder.`)
 </script>
 
 <template>
@@ -53,12 +54,12 @@ const found = (n: number): string => (n === 0 ? 'No addons found.' : n === 1 ? '
       </SettingRow>
       <SettingRow
         label="Reload addons"
-        :hint="status?.changed ? 'The folder has changed since the last reload.' : status ? found(status.addons.length) : undefined"
+        :hint="status?.changed ? 'The folder has changed since the last reload.' : status ? found(status.addons.filter((a) => !a.bundled).length) : undefined"
       >
         <Button size="sm" :intent="status?.changed ? 'primary' : 'default'" :loading="reloading" @click="reload">Reload</Button>
       </SettingRow>
 
-      <div v-for="addon in status?.addons ?? []" :key="addon.folder" class="py-2">
+      <div v-for="addon in status?.addons ?? []" :key="`${addon.bundled ? 'nyerk' : 'folder'}:${addon.folder}`" class="py-2">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 text-sm">
@@ -66,13 +67,16 @@ const found = (n: number): string => (n === 0 ? 'No addons found.' : n === 1 ? '
               <span v-if="addon.version" class="text-xs tabular-nums text-darker">{{ addon.version }}</span>
               <span v-if="addon.isNew" class="rounded bg-accent-soft px-1 text-[10px] font-semibold uppercase text-accent-text">New</span>
             </div>
-            <div v-if="addon.author" class="text-xs text-darker">by {{ addon.author }}</div>
+            <div v-if="addon.bundled" class="text-xs text-darker">Included with Nyerk</div>
+            <div v-else-if="addon.author" class="text-xs text-darker">by {{ addon.author }}</div>
             <div v-if="addon.description" class="text-xs leading-snug text-darker">{{ addon.description }}</div>
             <div v-if="addon.problem" class="text-xs leading-snug text-danger">
               {{ addon.state === 'incompatible' ? 'Not for this version' : 'Cannot load' }}: {{ addon.problem }}.
             </div>
             <template v-else>
-              <div v-if="addon.tab" class="text-xs text-darker">Adds a {{ addon.tab.label }} tab.</div>
+              <div v-if="addon.tab || addon.hud" class="text-xs text-darker">
+                Adds {{ [addon.tab && `a ${addon.tab.label} tab`, addon.hud && 'a HUD section'].filter(Boolean).join(' and ') }}.
+              </div>
               <div v-if="addon.native" class="text-xs leading-snug text-warning">Runs inside the tracker, with full access.</div>
               <div v-if="addon.state === 'on' && addon.error" class="break-words text-xs leading-snug text-danger">Error: {{ addon.error }}</div>
             </template>

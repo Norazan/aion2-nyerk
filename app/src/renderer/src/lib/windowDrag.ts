@@ -11,11 +11,13 @@ import { bridge } from './bridge.ts'
 
 const CLICK_SLOP = 4
 
-export interface WindowDragOptions {
-  move: 'bubble:moveTo' | 'hud:moveTo' | 'merchant:moveTo' | 'killfeed:moveTo'
-  end: 'bubble:dragEnd' | 'hud:dragEnd' | 'merchant:dragEnd' | 'killfeed:dragEnd'
+export type WindowDragOptions = {
   onClick?: () => void
-}
+} & (
+  | { move: 'bubble:moveTo' | 'hud:moveTo' | 'merchant:moveTo' | 'killfeed:moveTo'; end: 'bubble:dragEnd' | 'hud:dragEnd' | 'merchant:dragEnd' | 'killfeed:dragEnd' }
+  /** An addon's detached HUD: the calls name the addon. */
+  | { move: 'addonHud:moveTo'; end: 'addonHud:dragEnd'; addon: string }
+)
 
 export function windowDrag(opts: WindowDragOptions): {
   onPointerDown: (e: PointerEvent) => void
@@ -41,7 +43,10 @@ export function windowDrag(opts: WindowDragOptions): {
 
     const flush = (): void => {
       frame = 0
-      if (last) void api.invoke(opts.move, { x: last.screenX - grabX, y: last.screenY - grabY })
+      if (!last) return
+      const to = { x: last.screenX - grabX, y: last.screenY - grabY }
+      if ('addon' in opts) void api.invoke(opts.move, opts.addon, to)
+      else void api.invoke(opts.move, to)
     }
     const onMove = (ev: PointerEvent): void => {
       if (!dragging && Math.hypot(ev.screenX - startX, ev.screenY - startY) < CLICK_SLOP) return
@@ -60,7 +65,8 @@ export function windowDrag(opts: WindowDragOptions): {
       if (dragging) {
         last = ev
         flush()
-        void api.invoke(opts.end)
+        if ('addon' in opts) void api.invoke(opts.end, opts.addon)
+        else void api.invoke(opts.end)
       } else if (ev.type === 'pointerup') {
         opts.onClick?.()
       }

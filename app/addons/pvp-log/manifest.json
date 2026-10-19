@@ -1,0 +1,9 @@
+{
+  "id": "pvp-log",
+  "name": "PvP Log",
+  "version": "1.0.0",
+  "author": "xcrov",
+  "description": "Every player kill around you: the PvP Log tab, and its kill feed over the game.",
+  "nyerk": "^1",
+  "builtin": true
+}
