@@ -62,8 +62,8 @@
 }
 
 @layer base {
-  /* Every window here is transparent: the bubble is a circle, the panel a rounded card, the HUD
-     floats over the game. Without this they would paint an opaque rectangle. */
+  /* Clear unused areas of the bubble and HUD so they float over the game. The Linux collection
+     panel supplies an opaque native background for desktops without working alpha compositing. */
   html,
   body {
     background: transparent !important;

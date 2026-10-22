@@ -20,7 +20,7 @@
 import { app, BrowserWindow, screen, shell, type Rectangle } from 'electron'
 import { join } from 'node:path'
 import { broadcast } from './broadcast.ts'
-import { applyHudInputMode } from './desktop.ts'
+import { applyHudInputMode, panelDesktopOptions, revealPanel } from './desktop.ts'
 import { featureOn } from './builtins.ts'
 import { settings } from './settings.ts'
 import { tracker } from './tracker.ts'
@@ -182,7 +182,7 @@ export function createPanel(): BrowserWindow {
   const { width, height } = settings.get('panel')
   const win = overlayWindow({
     width, height, alwaysOnTop: settings.get('panelOnTop'),
-    ...(process.platform === 'linux' ? { skipTaskbar: false, minimizable: true } : {}),
+    ...panelDesktopOptions(),
   })
   if (!settings.get('panelOnTop')) win.setAlwaysOnTop(false)
   panel = win
@@ -219,8 +219,7 @@ export function showPanel(): void {
     // While the panel is open the HUD can be moved: it shows (even when empty) and takes the mouse.
     setHudEditing(true, false)
   }
-  if (win.webContents.isLoading()) win.once('ready-to-show', reveal)
-  else reveal()
+  revealPanel(win, reveal)
 }
 
 /**

@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DISPLAY_NAME } from '../shared/app.ts'
+import { configureDesktop } from '../main/desktop.ts'
 import { withoutAsar } from '../shared/asar.ts'
 import { chooseBundle, MAX_BUNDLE_FAILURES, parseBundleState, publishActiveBundle, type BundleState } from '../shared/bundle.ts'
 
@@ -137,4 +138,5 @@ function boot(): void {
 }
 
 app.setName(DISPLAY_NAME)
-boot()
+// Select native startup before loading app code or taking its single-instance lock.
+if (configureDesktop(app)) boot()

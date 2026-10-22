@@ -95,6 +95,23 @@ Repeat steps 2 and 3 when updating Nyerk. **Do not start Nyerk with `sudo`.**
   that `node_modules/electron/dist` is missing, run `npx --no-install install-electron` from `app/`,
   then try `npm run pack` again. This installs the project's Electron version; the system Electron
   package is not needed.
+- **Tracking works, but windows stay invisible:** if the terminal reports Mesa/GBM driver errors
+  or `XGetWindowAttributes failed for window`, quit Nyerk from the tray first, then try this from
+  the project folder:
+
+  ```bash
+  A2T_SIDECAR=/opt/nyerk-tracker/aion2-tracker \
+    ./app/dist/linux-unpacked/Aion2DropTracker --ozone-platform=x11 --disable-gpu
+  ```
+
+  The X11 flag selects the display backend before Electron starts; software rendering avoids the
+  failing graphics driver. New builds select X11 automatically, including on Wayland desktops
+  through XWayland. Keep `--disable-gpu` in your launch command if software rendering helps;
+  `NYERK_SOFTWARE_RENDERING=1` is an alternative. Chromium's sandbox stays enabled. Startup,
+  window-loading, and graphics errors
+  are recorded in `~/.config/Nyerk/logs/tracker.log` (under `$XDG_CONFIG_HOME` if set); include those
+  lines when reporting a display problem. Do not change system-driver permissions or run Nyerk
+  with `sudo` to fix a graphics error.
 - **Overlay missing:** Nyerk needs X11 or XWayland. On a Wayland desktop, install XWayland;
   alternatively, log out and select an X11/Xorg session on the login screen. Some desktop
   compositors may still restrict overlays. Native Wayland overlay placement is not supported.

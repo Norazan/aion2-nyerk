@@ -3,7 +3,6 @@
  * Python tracker running as a child process.
  */
 import { app } from 'electron'
-import { configureDesktop } from './desktop.ts'
 import { addons, registerAddonScheme } from './addons.ts'
 import { DISPLAY_NAME } from '../shared/app.ts'
 import { broadcast } from './broadcast.ts'
@@ -22,9 +21,6 @@ import { timers } from './timers.ts'
 import { startUpdateChecks } from './update.ts'
 import { appVersion } from './version.ts'
 import { applyWindowSettings, markQuitting, refreshHud, showMerchant, showPanel, showPanelTab, startOnTopWatch } from './windows.ts'
-
-// Configure the display backend before readiness and the first window.
-configureDesktop(app)
 
 // The name also determines the data folder (XDG_CONFIG_HOME/<name> on Linux).
 app.setName(DISPLAY_NAME)
