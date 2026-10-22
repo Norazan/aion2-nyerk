@@ -1,6 +1,6 @@
 # Nyerk
 
-A Windows overlay that counts your Aion 2 Pet Collection souls as they drop, so you don't have
+A native Linux and Windows overlay that counts your Aion 2 Pet Collection souls as they drop, so you don't have
 to keep opening the Pets menu.
 
 - **Live counts:** every soul is counted the moment it drops, with level-ups (5 → 25 → 75) and the
@@ -30,7 +30,7 @@ to keep opening the Pets menu.
 ## How it works
 
 The tracker **only listens** and functions the exact same as popular DPS Meters used in Aion 2. It reads the game's network traffic passively through
-[Npcap](https://npcap.com). It never sends anything to the game
+libpcap on Linux or [Npcap](https://npcap.com) on Windows. It never sends anything to the game
 or its servers, never reads or changes the game's memory, and sends no input.
 
 The app talks only to **nyerk.app**: to check for updates, and (unless you switch off "Share
@@ -39,6 +39,104 @@ carries your game server's id and an anonymous hash of your PC, never your chara
 position.
 
 ## Install
+
+### Linux
+
+Nyerk runs directly on Linux. You only need Wine/Proton for the game. These steps assume you
+already have Aion 2 working; Nyerk does not set up the game or its anti-cheat.
+
+**1. Install the basics.** You need [Python 3.12+](https://www.python.org) and
+[Node.js 24](https://nodejs.org). On Ubuntu or Debian, also run:
+
+```bash
+sudo apt update
+sudo apt install python3-venv libpcap0.8 libcap2-bin x11-utils
+```
+
+**2. Build Nyerk.** Open a terminal in the project folder (the one containing this README), then
+copy and paste these commands:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e . pyinstaller
+(cd app && npm ci && npm run pack)
+```
+
+**3. Allow Nyerk's tracker to read game traffic.** Run this once, in the same terminal. It installs
+a small background helper; the Nyerk app itself will still run as your normal user. `sudo` may ask
+for your Linux password.
+
+```bash
+sudo install -d -m 755 /opt/nyerk-tracker
+sudo cp -a build/sidecar/aion2-tracker/. /opt/nyerk-tracker/
+sudo chown -R root:root /opt/nyerk-tracker
+sudo chmod -R a+rX,go-w /opt/nyerk-tracker
+sudo setcap cap_net_raw=ep /opt/nyerk-tracker/aion2-tracker
+```
+
+**4. Start Nyerk**, from the project folder:
+
+```bash
+A2T_SIDECAR=/opt/nyerk-tracker/aion2-tracker ./app/dist/linux-unpacked/Aion2DropTracker
+```
+
+Use that command each time you start Nyerk, **before logging into your character**. Set the game
+to borderless or windowed mode so the overlay can appear. The collection panel opens on launch;
+closing it minimizes it to the taskbar. Use **Settings → Quit** to exit completely.
+
+Repeat steps 2 and 3 when updating Nyerk. **Do not start Nyerk with `sudo`.**
+
+<details>
+<summary>Troubleshooting and other Linux setups</summary>
+
+- **Arch/CachyOS:** run `sudo pacman -S libpcap libcap xorg-xprop` instead of the Ubuntu/Debian
+  commands above. **Fedora:** use `sudo dnf install libpcap libcap xprop`.
+- **Electron download:** packaging downloads Electron automatically. If an older checkout reports
+  that `node_modules/electron/dist` is missing, run `npx --no-install install-electron` from `app/`,
+  then try `npm run pack` again. This installs the project's Electron version; the system Electron
+  package is not needed.
+- **Tracking works, but windows stay invisible:** if the terminal reports Mesa/GBM driver errors
+  or `XGetWindowAttributes failed for window`, quit Nyerk from the tray first, then try this from
+  the project folder:
+
+  ```bash
+  A2T_SIDECAR=/opt/nyerk-tracker/aion2-tracker \
+    ./app/dist/linux-unpacked/Aion2DropTracker --ozone-platform=x11 --disable-gpu
+  ```
+
+  The X11 flag selects the display backend before Electron starts; software rendering avoids the
+  failing graphics driver. New builds select X11 automatically, including on Wayland desktops
+  through XWayland. Keep `--disable-gpu` in your launch command if software rendering helps;
+  `NYERK_SOFTWARE_RENDERING=1` is an alternative. Chromium's sandbox stays enabled. Startup,
+  window-loading, and graphics errors
+  are recorded in `~/.config/Nyerk/logs/tracker.log` (under `$XDG_CONFIG_HOME` if set); include those
+  lines when reporting a display problem. Do not change system-driver permissions or run Nyerk
+  with `sudo` to fix a graphics error.
+- **KDE: the game covers the overlays:** install `xorg-xprop` on Arch/CachyOS, `x11-utils` on
+  Ubuntu/Debian, or `xprop` on Fedora, then quit and restart Nyerk. New builds use it to keep the
+  floating bubble and HUDs above the game, including games KDE treats as fullscreen. The collection
+  panel stays a regular window: open it from the tray or taskbar when you need it. A fullscreen
+  game can cover that panel again when you return to playing.
+- **Overlay missing on other desktops:** Nyerk needs X11 or XWayland. On a Wayland desktop, install XWayland;
+  alternatively, log out and select an X11/Xorg session on the login screen. Some desktop
+  compositors may still restrict overlays. Native Wayland overlay placement is not supported.
+- **Capture permission error with a VPN:** some tunnel adapters need an extra permission. Run
+  `sudo setcap cap_net_raw,cap_net_admin=ep /opt/nyerk-tracker/aion2-tracker`, then restart Nyerk.
+  Capture can only see network interfaces available to the helper; separately sandboxed games
+  may need host-network access.
+- **AppImage:** build one with `npm run dist:linux` from `app/`. Make the resulting file executable
+  and launch it with `A2T_SIDECAR=/opt/nyerk-tracker/aion2-tracker` as above. Keep the separate
+  helper: permissions cannot be saved inside the AppImage's temporary, read-only mount. FUSE may
+  be required to run the AppImage.
+- **Other limitations:** Linux updates are manual, and hiding overlays from screen recordings is
+  unavailable. Only enable trusted Python addons: they share the helper's capture permissions.
+  Saved settings and collections normally live in `~/.config/Nyerk/` (`$XDG_CONFIG_HOME/Nyerk/`
+  if you changed that location). Browsing collections and replaying saved captures need no special
+  permissions.
+
+</details>
+
+### Windows
 
 1. Install [Npcap](https://npcap.com) (the default options are fine).
 2. Download `Nyerk-Setup-<version>.exe` from the
@@ -52,7 +150,33 @@ for updates by itself and asks before installing one.
 
 ## Build from source
 
-Needs Windows, [Python 3.12+](https://www.python.org), [Node.js 24](https://nodejs.org) and Npcap.
+Needs [Python 3.12+](https://www.python.org), [Node.js 24](https://nodejs.org), and the platform's
+capture library. Linux also needs the usual Electron desktop libraries (GTK 3, NSS, ALSA and X11).
+Build on the target operating system: PyInstaller cannot cross-compile the tracker helper.
+For release artifacts, build on the oldest Linux distribution and target architecture you intend
+to support: the frozen Python helper inherits the build host's glibc requirements. This cloud
+build uses glibc 2.41 and is not a compatibility build for older distributions.
+
+On Linux:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e . pytest pyinstaller
+cd app
+npm ci
+npm run check
+npm run build
+npm run dev
+```
+
+Development automatically uses `.venv/bin/python`; `A2T_PYTHON` or the Python setting can override
+it. For live capture use the capability-enabled helper via `A2T_SIDECAR`, as above. With the game
+closed, the backend stays paused and the panel remains usable without capture privileges.
+
+For a distributable build, run `npm run pack` or `npm run dist:linux` from `app/`. Both build the
+native sidecar and generate the app icon. Windows builds use `npm run dist:win` on Windows.
+
+On Windows:
 
 ```bash
 python -m venv .venv
@@ -63,11 +187,28 @@ python -m venv .venv
 ```
 
 ```bash
-cd app && npm install && npm run dist
+cd app && npm ci && npm run dist:win
 ```
 
 The installer is written to `app/dist/`. To run without installing, use `npm run build` and then
 start Electron from `app/` (`npx electron .`).
+
+### Validation without the game
+
+Run `.venv/bin/python -m pytest` from the repository and `npm run check` from `app/` for capture,
+process detection, desktop policy and helper cleanup tests. `npm run build` builds main, preload,
+and the Vue renderer. Exercise the backend without privileges with:
+
+```bash
+.venv/bin/python -m aion2_tracker.sidecar --paused --data /tmp/nyerk-dev-collection.json
+```
+
+Expect `ready` and `idle` JSON messages. Enter `{"cmd":"snapshot"}` to request the collection,
+then `{"cmd":"quit"}` to stop it. To run the UI against a saved capture, launch from `app/` with
+`A2T_REPLAY=/absolute/path/to/capture.pcap npm run dev`; no game or live-capture permissions are
+needed. Captures can contain personal game data. Desktop smoke tests require a display (Xvfb is
+suitable for headless testing); neither those tests nor offline replay validate a real Wine/Proton
+game session or its anti-cheat compatibility.
 
 ## Privacy
 
@@ -75,8 +216,9 @@ Nyerk itself sends data only to nyerk.app:
 
 - **Your IP address**, which every connection carries, for the field boss timers and update checks.
 - **The app's version**, which every request names.
-- **A machine identifier** for the crowd-sourced field boss timers: a salted hash of your Windows
-  machine id, made on your PC, so the id itself never leaves it.
+- **A machine identifier** for the crowd-sourced field boss timers: a salted hash of your Linux
+  machine-id or Windows MachineGuid, made on your PC, so the id itself never leaves it. A persistent
+  random identifier is used if the system identifier is unavailable.
 - **Your game server and zone ids, and the field boss times your map shows**, for the
   crowd-sourced timers.
 

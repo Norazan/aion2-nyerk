@@ -9,10 +9,10 @@
  *   addonhud  #/addonhud/<id>  an addon's HUD section detached from the HUD: a HUD of its own,
  *                         click-through, sized to its content, moved like the HUD
  *
- * Overlay rules carried over from marnis-app (docs/09 there): 'screen-saver' level so they sit
- * above a borderless game (exclusive fullscreen cannot be drawn over by anything), shown with
- * showInactive() so they never take focus from the game, and each window only as large as what it
- * shows. A big transparent window made the game drop frames on every alt-tab there.
+ * Windows overlays use the 'screen-saver' level; KDE overlays use its critical-notification
+ * type to sit above the active fullscreen game. Other Linux desktops use normal always-on-top.
+ * Overlays use showInactive() so they never take focus from the game, and each window is only
+ * as large as what it shows. A big transparent window made the game drop frames on every alt-tab.
  *
  * While the game is closed the bubble and the HUD do not exist at all (idle.ts): the panel can
  * still be opened from the tray, where the bubble would be.
@@ -20,9 +20,11 @@
 import { app, BrowserWindow, screen, shell, type Rectangle } from 'electron'
 import { join } from 'node:path'
 import { broadcast } from './broadcast.ts'
+import { applyHudInputMode, panelDesktopOptions, revealPanel } from './desktop.ts'
 import { featureOn } from './builtins.ts'
+import { LinuxStacking } from './linuxStacking.ts'
 import { settings } from './settings.ts'
-import { tracker } from './tracker.ts'
+import { log, tracker } from './tracker.ts'
 import type { EventChannels } from '../shared/ipc.ts'
 import type { Point } from '../shared/settings.ts'
 import type { TimerId } from '../shared/timers.ts'
@@ -32,6 +34,7 @@ const PANEL_GAP = 8
 /** The panel's size while a map is open in it. */
 const PANEL_EXPANDED = { width: 900, height: 680 }
 const EDGE = 24
+const linuxStacking = new LinuxStacking()
 
 let bubble: BrowserWindow | null = null
 let panel: BrowserWindow | null = null
@@ -54,7 +57,7 @@ export function onPanelVisible(fn: (visible: boolean) => void): () => void {
 }
 
 export function panelVisible(): boolean {
-  return alive(panel) && panel.isVisible()
+  return alive(panel) && panel.isVisible() && !panel.isMinimized()
 }
 
 export function markQuitting(): void {
@@ -63,7 +66,7 @@ export function markQuitting(): void {
 
 const alive = (w: BrowserWindow | null): w is BrowserWindow => w !== null && !w.isDestroyed()
 
-function overlayWindow(options: Electron.BrowserWindowConstructorOptions): BrowserWindow {
+function overlayWindow(options: Electron.BrowserWindowConstructorOptions, overlay = true): BrowserWindow {
   const win = new BrowserWindow({
     show: false,
     frame: false,
@@ -90,8 +93,16 @@ function overlayWindow(options: Electron.BrowserWindowConstructorOptions): Brows
     },
     ...options,
   })
-  win.setAlwaysOnTop(true, 'screen-saver')
-  win.setContentProtection(settings.get('hideFromCapture'))
+  if (process.platform === 'linux') win.setAlwaysOnTop(options.alwaysOnTop ?? true)
+  else win.setAlwaysOnTop(options.alwaysOnTop ?? true, 'screen-saver')
+  if (overlay) {
+    // KWin chooses a stacking layer when the window is first mapped. Set this while hidden;
+    // the collection panel stays a normal window with taskbar access and keyboard focus.
+    const note = linuxStacking.apply(win.getNativeWindowHandle())
+    if (note) log(note)
+  }
+  // Electron only implements screen-capture exclusion on Windows and macOS.
+  if (process.platform !== 'linux') win.setContentProtection(settings.get('hideFromCapture'))
   // Links go to the browser; the windows themselves never navigate away from the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
@@ -177,7 +188,10 @@ function placePanel(): void {
 export function createPanel(): BrowserWindow {
   if (alive(panel)) return panel
   const { width, height } = settings.get('panel')
-  const win = overlayWindow({ width, height, alwaysOnTop: settings.get('panelOnTop') })
+  const win = overlayWindow({
+    width, height, alwaysOnTop: settings.get('panelOnTop'),
+    ...panelDesktopOptions(),
+  }, false)
   if (!settings.get('panelOnTop')) win.setAlwaysOnTop(false)
   panel = win
   win.on('close', (event) => {
@@ -187,6 +201,16 @@ export function createPanel(): BrowserWindow {
     hidePanel()
   })
   win.on('closed', () => (panel = null))
+  win.on('restore', () => {
+    broadcast('panel:visible', true)
+    for (const fn of panelListeners) fn(true)
+    setHudEditing(true, false)
+  })
+  win.on('minimize', () => {
+    broadcast('panel:visible', false)
+    for (const fn of panelListeners) fn(false)
+    setHudEditing(false)
+  })
   load(win, 'panel')
   return win
 }
@@ -195,6 +219,7 @@ export function showPanel(): void {
   const win = createPanel()
   placePanel()
   const reveal = (): void => {
+    if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
     broadcast('panel:visible', true)
@@ -202,8 +227,7 @@ export function showPanel(): void {
     // While the panel is open the HUD can be moved: it shows (even when empty) and takes the mouse.
     setHudEditing(true, false)
   }
-  if (win.webContents.isLoading()) win.once('ready-to-show', reveal)
-  else reveal()
+  revealPanel(win, reveal)
 }
 
 /**
@@ -254,7 +278,9 @@ export function setPanelExpanded(expanded: boolean): void {
 
 export function hidePanel(): void {
   if (!alive(panel)) return
-  panel.hide()
+  // Keep a taskbar entry on Linux: some desktops have no system tray host at all.
+  if (process.platform === 'linux') panel.minimize()
+  else panel.hide()
   broadcast('panel:visible', false)
   for (const fn of panelListeners) fn(false)
   // Back to click-through, so the HUD never catches a click meant for the game.
@@ -262,7 +288,7 @@ export function hidePanel(): void {
 }
 
 export function togglePanel(): void {
-  if (alive(panel) && panel.isVisible()) hidePanel()
+  if (panelVisible()) hidePanel()
   else showPanel()
 }
 
@@ -278,7 +304,7 @@ function hudPosition(): Point {
 export function createHud(): BrowserWindow {
   if (alive(hud)) return hud
   const p = hudPosition()
-  const win = overlayWindow({ x: p.x, y: p.y, width: 280, height: 120, focusable: false })
+  const win = overlayWindow({ x: p.x, y: p.y, width: 280, height: 120, focusable: process.platform === 'linux' })
   win.setIgnoreMouseEvents(true)
   hud = win
   win.on('closed', () => (hud = null))
@@ -333,8 +359,7 @@ export function setHudEditing(editing: boolean, focus = true): void {
   // Edit mode is the only time the HUDs take the mouse: click-through the rest of the time.
   for (const win of [hud, ...addonHudWindows()]) {
     if (!alive(win)) continue
-    win.setIgnoreMouseEvents(!editing)
-    win.setFocusable(editing)
+    applyHudInputMode(win, editing)
   }
   if (editing) {
     refreshHud()
@@ -380,7 +405,7 @@ function addonHudPosition(id: string): Point {
 function createAddonHud(id: string): void {
   if (addonHuds.has(id)) return
   const p = addonHudPosition(id)
-  const win = overlayWindow({ x: p.x, y: p.y, width: ADDON_HUD_WIDTH, height: 60, focusable: hudEditing })
+  const win = overlayWindow({ x: p.x, y: p.y, width: ADDON_HUD_WIDTH, height: 60, focusable: process.platform === 'linux' || hudEditing })
   win.setIgnoreMouseEvents(!hudEditing)
   addonHuds.set(id, { win, size: { width: 0, height: 0 } })
   win.on('closed', () => {
@@ -589,7 +614,8 @@ export function startOnTopWatch(): void {
   setInterval(() => {
     for (const win of [bubble, hud, merchant, killFeed, ...addonHudWindows()]) {
       if (!alive(win) || !win.isVisible()) continue
-      win.setAlwaysOnTop(true, 'screen-saver')
+      if (process.platform === 'linux') win.setAlwaysOnTop(true)
+      else win.setAlwaysOnTop(true, 'screen-saver')
       win.moveTop()
     }
   }, ON_TOP_EVERY_MS).unref()
@@ -598,7 +624,9 @@ export function startOnTopWatch(): void {
 /** Settings that change how the windows behave, applied live. */
 export function applyWindowSettings(): void {
   const hidden = settings.get('hideFromCapture')
-  for (const w of [bubble, panel, hud, merchant, killFeed, ...addonHudWindows()]) if (alive(w)) w.setContentProtection(hidden)
+  if (process.platform !== 'linux') {
+    for (const w of [bubble, panel, hud, merchant, killFeed, ...addonHudWindows()]) if (alive(w)) w.setContentProtection(hidden)
+  }
   if (!settings.get('hud').merchant) closeMerchant()
   // The PvP Log addon switched off or on: its kill feed goes, or comes back while the overlays show.
   if (!featureOn('pvp-log') && alive(killFeed)) {
@@ -607,7 +635,8 @@ export function applyWindowSettings(): void {
   } else if (alive(bubble)) createKillFeed()
   if (alive(panel)) {
     const onTop = settings.get('panelOnTop')
-    panel.setAlwaysOnTop(onTop, 'screen-saver')
+    if (process.platform === 'linux') panel.setAlwaysOnTop(onTop)
+    else panel.setAlwaysOnTop(onTop, 'screen-saver')
     if (panel.isVisible()) placePanel()
   }
   refreshHud()
@@ -626,7 +655,8 @@ export function closeOverlays(): void {
   killFeed = null
   hudEditing = false
   hudSize = { width: 0, height: 0 }
-  if (alive(panel) && !panel.isVisible()) {
+  // Linux's minimized panel is the fallback launcher on desktops without a tray.
+  if (process.platform !== 'linux' && alive(panel) && !panel.isVisible()) {
     panel.destroy()
     panel = null
   }

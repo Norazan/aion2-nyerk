@@ -19,6 +19,25 @@ const LAG_CHECK_MS = 1000
 const LAG_REPORT_MS = 1000
 const HANG_CHECK_MS = 15_000
 const HANG_MS = 5_000
+const MAX_WINDOW_NOTES = 32
+const MAX_RENDER_ERRORS = 10
+
+/** Keep diagnostic records short and on one line. */
+const detail = (value: string): string => value.replace(/\s+/g, ' ').slice(0, 700)
+
+/** Electron can forward a child frame's console as the main frame: also check its script URL. */
+function ownRendererSource(contents: WebContents, sourceId: string): boolean {
+  try {
+    const page = new URL(contents.getURL())
+    const source = new URL(sourceId)
+    if (source.protocol !== page.protocol || source.host !== page.host) return false
+    return source.pathname === page.pathname
+      || source.pathname.startsWith(new URL('./assets/', page).pathname)
+      || (!app.isPackaged && source.pathname.startsWith(new URL('./src/', page).pathname))
+  } catch {
+    return false
+  }
+}
 
 /**
  * Each window's page, as last loaded. A renderer that was killed loses it: `reload()` on it then
@@ -27,7 +46,8 @@ const HANG_MS = 5_000
 const pages = new Map<number, string>()
 
 function label(contents: WebContents): string {
-  return (pages.get(contents.id) ?? contents.getURL()).split('#/')[1] || 'window'
+  const route = (pages.get(contents.id) ?? contents.getURL()).split('#/')[1] || 'window'
+  return `${route}#${contents.id}`
 }
 
 function restore(contents: WebContents, why: string): void {
@@ -51,6 +71,24 @@ function reloadAll(why: string): void {
 }
 
 export function startHealthWatch(): void {
+  const softwareRequested = app.commandLine.hasSwitch('disable-gpu') || process.env['NYERK_SOFTWARE_RENDERING'] === '1'
+  log(`health: desktop ${process.platform}; Electron ${process.versions.electron}; display backend ${app.commandLine.getSwitchValue('ozone-platform') || 'default'}; software rendering requested=${softwareRequested}`)
+  let lastGPUStatus = ''
+  const logGPUStatus = (): void => {
+    const features = app.getGPUFeatureStatus()
+    const status = JSON.stringify({
+      hardwareAcceleration: app.isHardwareAccelerationEnabled(),
+      compositing: features.gpu_compositing,
+      rasterization: features.rasterization,
+      webgl: features.webgl,
+    })
+    if (status !== lastGPUStatus) {
+      lastGPUStatus = status
+      log(`health: graphics ${status}`)
+    }
+  }
+  app.on('gpu-info-update', logGPUStatus)
+  logGPUStatus()
   app.on('child-process-gone', (_event, details) => {
     log(`health: ${details.type} process gone: ${details.reason} (exit ${details.exitCode})`)
     if (details.type === 'GPU') {
@@ -66,10 +104,44 @@ export function startHealthWatch(): void {
 
   app.on('browser-window-created', (_event, win) => {
     const contents = win.webContents
+    let windowNotes = 0
+    let renderErrors = 0
+    const noteWindow = (event: string): void => {
+      if (win.isDestroyed()) return
+      if (windowNotes++ < MAX_WINDOW_NOTES) {
+        const { x, y, width, height } = win.getBounds()
+        log(`health: ${label(contents)} ${event}; visible=${win.isVisible()} minimized=${win.isMinimized()} bounds=${x},${y} ${width}x${height}`)
+      } else if (windowNotes === MAX_WINDOW_NOTES + 1) {
+        log(`health: ${label(contents)} further visibility notes suppressed`)
+      }
+    }
+    contents.on('did-start-loading', () => { renderErrors = 0 })
     contents.on('did-finish-load', () => {
       const url = contents.getURL()
       if (url) pages.set(contents.id, url)
+      noteWindow('loaded')
     })
+    contents.on('did-fail-load', (_event, code, description, _url, mainFrame) => {
+      if (mainFrame) log(`health: ${label(contents)} main page failed to load (${code} ${detail(description)})`)
+    })
+    contents.on('preload-error', (_event, _path, error) => {
+      log(`health: ${label(contents)} preload failed: ${detail(error.message)}`)
+    })
+    contents.on('console-message', (event) => {
+      // Addon frames can log arbitrary application data. Only record errors from Nyerk's own
+      // main frame, capped per load, so a broken renderer is visible without dumping consoles.
+      if (event.level !== 'error' || contents.isDestroyed() || event.frame !== contents.mainFrame || !ownRendererSource(contents, event.sourceId)) return
+      if (renderErrors++ < MAX_RENDER_ERRORS) {
+        log(`health: ${label(contents)} renderer error: ${detail(event.message)}`)
+      } else if (renderErrors === MAX_RENDER_ERRORS + 1) {
+        log(`health: ${label(contents)} further renderer errors suppressed`)
+      }
+    })
+    win.on('ready-to-show', () => noteWindow('ready to show'))
+    win.on('show', () => noteWindow('shown'))
+    win.on('hide', () => noteWindow('hidden'))
+    win.on('minimize', () => noteWindow('minimized'))
+    win.on('restore', () => noteWindow('restored'))
     win.on('closed', () => pages.delete(contents.id))
     win.on('unresponsive', () => log(`health: ${label(win.webContents)} is not responding`))
     win.on('responsive', () => log(`health: ${label(win.webContents)} is responding again`))

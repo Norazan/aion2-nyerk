@@ -2,7 +2,7 @@
 
 export type UpdateState =
   | 'idle' // nothing checked yet
-  | 'unsupported' // a development run: there is no feed to update from
+  | 'unsupported' // development or a platform without a native update feed
   | 'checking'
   | 'none' // up to date
   | 'available' // a newer version is on the feed; nothing downloaded yet

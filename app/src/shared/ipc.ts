@@ -131,6 +131,8 @@ export type EventPayload<C extends EventChannel> = EventChannels[C]
 
 /** What preload exposes as `window.a2t`. */
 export interface Bridge {
+  /** Host desktop, exposed by preload without giving the renderer Node access. */
+  readonly platform: string
   invoke<C extends InvokeChannel>(channel: C, ...args: InvokeArgs<C>): Promise<InvokeResult<C>>
   on<C extends EventChannel>(channel: C, listener: (payload: EventPayload<C>) => void): () => void
 }

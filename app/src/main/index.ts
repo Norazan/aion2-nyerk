@@ -22,13 +22,11 @@ import { startUpdateChecks } from './update.ts'
 import { appVersion } from './version.ts'
 import { applyWindowSettings, markQuitting, refreshHud, showMerchant, showPanel, showPanelTab, startOnTopWatch } from './windows.ts'
 
-// The name is also the data folder's (%APPDATA%\<name>): the old one is moved across once.
+// The name also determines the data folder (XDG_CONFIG_HOME/<name> on Linux).
 app.setName(DISPLAY_NAME)
 const migrated = OLD_NAMES.map((name) => moveDataFolder(join(app.getPath('appData'), name), app.getPath('userData')))
   .filter((m) => m !== 'nothing to move')
   .join('; ')
-// Kept from the first release: Windows ties the shortcut and the updater to this id.
-app.setAppUserModelId('com.xcrov.aion2-drop-tracker')
 // Addons' pages (nyerk-addon://): Electron wants the scheme named before the app is ready.
 registerAddonScheme()
 
@@ -75,7 +73,11 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     // The bubble, the HUD and the tracker, once it is known whether the game is running.
-    void startIdleWatch()
+    void startIdleWatch().then(() => {
+      // GNOME and other Linux desktops may have no tray host. The panel also has a taskbar
+      // entry and opens on launch, so the app remains reachable without a tray extension.
+      if (process.platform === 'linux' && !restored?.panel.visible) showPanel()
+    })
     startUpdateChecks()
     startTimers()
     if (restored?.panel.visible) {

@@ -1,5 +1,6 @@
 /**
- * Persisted settings: `%APPDATA%\Nyerk\settings.json`.
+ * Persisted settings: `$XDG_CONFIG_HOME/Nyerk/settings.json` (normally ~/.config) on Linux,
+ * `%APPDATA%\Nyerk\settings.json` on Windows.
  *
  * As in marnis-app: the store is created on first use, never at import, because electron-store
  * fixes the `userData` path when it is constructed. And every write is normalised, then broadcast
