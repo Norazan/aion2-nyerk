@@ -9,10 +9,10 @@
  *   addonhud  #/addonhud/<id>  an addon's HUD section detached from the HUD: a HUD of its own,
  *                         click-through, sized to its content, moved like the HUD
  *
- * Overlay rules carried over from marnis-app (docs/09 there): 'screen-saver' level so they sit
- * above a borderless game (exclusive fullscreen cannot be drawn over by anything), shown with
- * showInactive() so they never take focus from the game, and each window only as large as what it
- * shows. A big transparent window made the game drop frames on every alt-tab there.
+ * Windows overlays use the 'screen-saver' level; KDE overlays use its critical-notification
+ * type to sit above the active fullscreen game. Other Linux desktops use normal always-on-top.
+ * Overlays use showInactive() so they never take focus from the game, and each window is only
+ * as large as what it shows. A big transparent window made the game drop frames on every alt-tab.
  *
  * While the game is closed the bubble and the HUD do not exist at all (idle.ts): the panel can
  * still be opened from the tray, where the bubble would be.
@@ -22,8 +22,9 @@ import { join } from 'node:path'
 import { broadcast } from './broadcast.ts'
 import { applyHudInputMode, panelDesktopOptions, revealPanel } from './desktop.ts'
 import { featureOn } from './builtins.ts'
+import { LinuxStacking } from './linuxStacking.ts'
 import { settings } from './settings.ts'
-import { tracker } from './tracker.ts'
+import { log, tracker } from './tracker.ts'
 import type { EventChannels } from '../shared/ipc.ts'
 import type { Point } from '../shared/settings.ts'
 import type { TimerId } from '../shared/timers.ts'
@@ -33,6 +34,7 @@ const PANEL_GAP = 8
 /** The panel's size while a map is open in it. */
 const PANEL_EXPANDED = { width: 900, height: 680 }
 const EDGE = 24
+const linuxStacking = new LinuxStacking()
 
 let bubble: BrowserWindow | null = null
 let panel: BrowserWindow | null = null
@@ -64,7 +66,7 @@ export function markQuitting(): void {
 
 const alive = (w: BrowserWindow | null): w is BrowserWindow => w !== null && !w.isDestroyed()
 
-function overlayWindow(options: Electron.BrowserWindowConstructorOptions): BrowserWindow {
+function overlayWindow(options: Electron.BrowserWindowConstructorOptions, overlay = true): BrowserWindow {
   const win = new BrowserWindow({
     show: false,
     frame: false,
@@ -93,6 +95,12 @@ function overlayWindow(options: Electron.BrowserWindowConstructorOptions): Brows
   })
   if (process.platform === 'linux') win.setAlwaysOnTop(options.alwaysOnTop ?? true)
   else win.setAlwaysOnTop(options.alwaysOnTop ?? true, 'screen-saver')
+  if (overlay) {
+    // KWin chooses a stacking layer when the window is first mapped. Set this while hidden;
+    // the collection panel stays a normal window with taskbar access and keyboard focus.
+    const note = linuxStacking.apply(win.getNativeWindowHandle())
+    if (note) log(note)
+  }
   // Electron only implements screen-capture exclusion on Windows and macOS.
   if (process.platform !== 'linux') win.setContentProtection(settings.get('hideFromCapture'))
   // Links go to the browser; the windows themselves never navigate away from the app.
@@ -183,7 +191,7 @@ export function createPanel(): BrowserWindow {
   const win = overlayWindow({
     width, height, alwaysOnTop: settings.get('panelOnTop'),
     ...panelDesktopOptions(),
-  })
+  }, false)
   if (!settings.get('panelOnTop')) win.setAlwaysOnTop(false)
   panel = win
   win.on('close', (event) => {

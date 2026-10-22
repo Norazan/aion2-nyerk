@@ -50,7 +50,7 @@ already have Aion 2 working; Nyerk does not set up the game or its anti-cheat.
 
 ```bash
 sudo apt update
-sudo apt install python3-venv libpcap0.8 libcap2-bin
+sudo apt install python3-venv libpcap0.8 libcap2-bin x11-utils
 ```
 
 **2. Build Nyerk.** Open a terminal in the project folder (the one containing this README), then
@@ -89,8 +89,8 @@ Repeat steps 2 and 3 when updating Nyerk. **Do not start Nyerk with `sudo`.**
 <details>
 <summary>Troubleshooting and other Linux setups</summary>
 
-- **Fedora or Arch:** install `libpcap` and the package providing `setcap` (`libcap` on both),
-  instead of the Ubuntu/Debian packages above.
+- **Arch/CachyOS:** run `sudo pacman -S libpcap libcap xorg-xprop` instead of the Ubuntu/Debian
+  commands above. **Fedora:** use `sudo dnf install libpcap libcap xprop`.
 - **Electron download:** packaging downloads Electron automatically. If an older checkout reports
   that `node_modules/electron/dist` is missing, run `npx --no-install install-electron` from `app/`,
   then try `npm run pack` again. This installs the project's Electron version; the system Electron
@@ -112,7 +112,12 @@ Repeat steps 2 and 3 when updating Nyerk. **Do not start Nyerk with `sudo`.**
   are recorded in `~/.config/Nyerk/logs/tracker.log` (under `$XDG_CONFIG_HOME` if set); include those
   lines when reporting a display problem. Do not change system-driver permissions or run Nyerk
   with `sudo` to fix a graphics error.
-- **Overlay missing:** Nyerk needs X11 or XWayland. On a Wayland desktop, install XWayland;
+- **KDE: the game covers the overlays:** install `xorg-xprop` on Arch/CachyOS, `x11-utils` on
+  Ubuntu/Debian, or `xprop` on Fedora, then quit and restart Nyerk. New builds use it to keep the
+  floating bubble and HUDs above the game, including games KDE treats as fullscreen. The collection
+  panel stays a regular window: open it from the tray or taskbar when you need it. A fullscreen
+  game can cover that panel again when you return to playing.
+- **Overlay missing on other desktops:** Nyerk needs X11 or XWayland. On a Wayland desktop, install XWayland;
   alternatively, log out and select an X11/Xorg session on the login screen. Some desktop
   compositors may still restrict overlays. Native Wayland overlay placement is not supported.
 - **Capture permission error with a VPN:** some tunnel adapters need an extra permission. Run
