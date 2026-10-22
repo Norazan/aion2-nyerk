@@ -8,14 +8,16 @@
  *
  * Environment overrides, for development:
  *   A2T_ROOT          the repo (where aion2_tracker/ is); found by walking up from the app otherwise
- *   A2T_PYTHON        the interpreter (also a setting); <root>/.venv/Scripts/python.exe otherwise
+ *   A2T_PYTHON        the interpreter (also a setting); the repo's native .venv otherwise
+ *   A2T_SIDECAR       an absolute path to a native helper (e.g. one with Linux capture capabilities)
  *   A2T_REPLAY        a .pcap to replay instead of watching the game, to try the UI without it
  *   A2T_REPLAY_SPEED  its speed, as a multiple of real time (default 1)
  */
 import { app } from 'electron'
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { helperExecutable, killTrackerTree, TrackerCleanup, validHelperOverride, venvPython } from './trackerPlatform.ts'
 import { DISPLAY_NAME } from '../shared/app.ts'
 import { broadcast } from './broadcast.ts'
 import { settings } from './settings.ts'
@@ -33,6 +35,7 @@ const RESTART_DELAYS_MS = [1000, 3000, 10000, 30000]
 const DUMP_TIMEOUT_MS = 1500
 
 let child: ChildProcessWithoutNullStreams | null = null
+const cleanup = new TrackerCleanup()
 /** Whether the sidecar should be capturing: only while the game runs (see idle.ts). */
 let capturing = true
 let stopping = false
@@ -147,17 +150,23 @@ function npcapInstalled(): boolean {
 }
 
 /**
- * What to run. An installed app runs the packaged helper (resources/sidecar/aion2-tracker.exe,
+ * What to run. An installed app runs the native packaged helper (resources/sidecar/aion2-tracker
+ * on Linux, aion2-tracker.exe on Windows,
  * built by PyInstaller: no Python needed); development runs the repo's Python.
  */
 function trackerCommand(): { exe: string; args: string[]; cwd: string; root: string | null } | string {
-  const packaged = join(process.resourcesPath, 'sidecar', 'aion2-tracker.exe')
+  const override = process.env['A2T_SIDECAR']
+  if (override) {
+    if (!validHelperOverride(override)) return 'A2T_SIDECAR must name an executable native helper file by its absolute path.'
+    return { exe: override, args: [], cwd: dirname(override), root: null }
+  }
+  const packaged = join(process.resourcesPath, 'sidecar', helperExecutable(process.platform))
   if (app.isPackaged) {
     return existsSync(packaged) ? { exe: packaged, args: [], cwd: dirname(packaged), root: null } : `The tracker is missing from the install (${packaged}). Reinstall the app.`
   }
   const root = repoRoot()
   if (!root) return 'Could not find the aion2_tracker folder next to the app (set A2T_ROOT).'
-  const python = settings.get('tracker').python || process.env['A2T_PYTHON'] || join(root, '.venv', 'Scripts', 'python.exe')
+  const python = settings.get('tracker').python || process.env['A2T_PYTHON'] || venvPython(root, process.platform)
   if (!existsSync(python)) return `Python not found at ${python}. Create the venv (.venv in the repo) or set it in Settings.`
   return { exe: python, args: ['-u', '-m', 'aion2_tracker.sidecar'], cwd: root, root }
 }
@@ -166,7 +175,7 @@ export function startTracker(): void {
   if (child) return
   stopping = false
   const replay = process.env['A2T_REPLAY']
-  if (!replay && !npcapInstalled()) {
+  if (!replay && capturing && process.platform === 'win32' && !npcapInstalled()) {
     setStatus({
       state: 'error',
       detail: 'Npcap is not installed. Install it from https://npcap.com (the default options are fine), then Restart tracker.',
@@ -189,6 +198,7 @@ export function startTracker(): void {
   const proc = spawn(cmd.exe, args, {
     cwd: cmd.cwd,
     windowsHide: true,
+    detached: process.platform !== 'win32',
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
   })
   child = proc
@@ -211,6 +221,8 @@ export function startTracker(): void {
     stderrTail = [...stderrTail, ...lines].slice(-20)
   })
   proc.on('error', (err) => {
+    if (child !== proc) return
+    child = null
     setStatus({ state: 'error', detail: `Could not start the tracker: ${err.message}` })
   })
   proc.on('exit', (code) => {
@@ -513,29 +525,21 @@ export function stopTracker(): void {
   const proc = child
   child = null
   if (!proc) return
+  cleanup.waitForExit(proc)
   try {
     proc.stdin.write(JSON.stringify({ cmd: 'quit' }) + '\n')
     proc.stdin.end()
   } catch {
     // already closed
   }
-  // The capture thread may be blocked in Npcap; a quit it cannot act on promptly is a kill.
-  setTimeout(() => proc.exitCode === null && killTree(proc), 1500).unref()
-}
-
-/**
- * A venv's python.exe is a launcher that runs the real interpreter as its own child, so killing
- * the process we started would leave the tracker running. taskkill /T takes the whole tree.
- */
-function killTree(proc: ChildProcessWithoutNullStreams): void {
-  if (proc.pid === undefined) return
-  spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true })
 }
 
 /** For process exit, where timers never fire. */
 export function killTrackerNow(): void {
   stopping = true
   pvpLog.flush()
-  if (child && child.exitCode === null) killTree(child)
+  if (child && child.exitCode === null) killTrackerTree(child)
+  // stopTracker() may already have cleared child while a blocked pcap reader is still exiting.
+  cleanup.killAll()
   child = null
 }

@@ -1,10 +1,11 @@
-# Windows installer: per-user NSIS (no admin rights), like marnis-app's.
+# Native Linux desktop distribution. Windows NSIS is retained via npm run dist:win on Windows.
 #
-#   npm run dist      -> dist/Nyerk-Setup-<version>.exe
+#   npm run dist      -> dist/Nyerk-<version>-<arch>.AppImage
+#   npm run pack      -> dist/linux-unpacked/
 #
 # The tracker helper is the PyInstaller build in ../build/sidecar/aion2-tracker (npm run dist builds
-# it first: scripts/build-sidecar.mjs). Npcap is not bundled: its licence does not allow it, and
-# the app tells the user to install it.
+# it first: scripts/build-sidecar.mjs). Build on the target OS. Linux requires the system libpcap;
+# Windows requires Npcap. Live capture permissions are configured separately for the helper.
 # appId, executableName and the package name (the install folder) are kept from the first release:
 # the updater and the installed copy are found by them. The product name was renamed in 0.1.11.
 appId: com.xcrov.aion2-drop-tracker
@@ -22,6 +23,14 @@ extraResources:
     filter: ['**/*']
 asar: true
 electronLanguages: [en-US]
+# Reuse the binary installed (and checksum-verified) by the locked electron dependency.
+electronDist: node_modules/electron/dist
+linux:
+  target: [AppImage]
+  category: Game
+  icon: build/icon.png
+  artifactName: Nyerk-${version}-${arch}.${ext}
+  syncDesktopName: true
 win:
   target: [nsis]
   icon: build/icon.ico

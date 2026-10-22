@@ -73,7 +73,9 @@ function intact(version: string, sha512: string): boolean {
 }
 
 function forcedToBuiltin(): boolean {
-  return !app.isPackaged || process.argv.includes('--builtin-bundle') || process.env['NYERK_BUILTIN'] === '1'
+  // The published bundle feed belongs to the Windows release. Never load its cached code into
+  // a native Linux install; a future Linux feed must have its own platform-specific contract.
+  return process.platform !== 'win32' || !app.isPackaged || process.argv.includes('--builtin-bundle') || process.env['NYERK_BUILTIN'] === '1'
 }
 
 function runBuiltin(builtinMain: string, version: string): void {

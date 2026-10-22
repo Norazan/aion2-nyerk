@@ -10,6 +10,7 @@ import { bridge } from '@/lib/bridge.ts'
 import { useApp } from '@/stores/app.ts'
 
 const store = useApp()
+const linux = bridge().platform === 'linux'
 const info = ref<{ version: string; settingsFile: string; logFile: string } | null>(null)
 onMounted(async () => (info.value = await bridge().invoke('app:info')))
 
@@ -19,7 +20,7 @@ const updateText = computed(() => {
   const u = store.update
   switch (u.state) {
     case 'unsupported':
-      return 'A development run: updates come with the installed app.'
+      return linux ? 'Linux updates are installed manually from a new package or build.' : 'A development run: updates come with the installed app.'
     case 'checking':
       return 'Checking…'
     case 'none':
@@ -44,6 +45,7 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
 
 <template>
   <div class="space-y-4 p-3">
+    <p v-if="linux" class="text-xs text-darker">Linux overlays use X11 or XWayland. Use a windowed or borderless game; fullscreen visibility depends on your desktop compositor.</p>
     <section>
       <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-darkest">You</h3>
       <div class="divide-y divide-[color:var(--gray-4)] rounded-lg border border-card bg-card px-3">
@@ -148,7 +150,7 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
         <SettingRow label="Keep this panel on top" hint="Stays above the game while open.">
           <Toggle :model-value="store.settings.panelOnTop" @update:model-value="store.set('panelOnTop', $event)" />
         </SettingRow>
-        <SettingRow label="Hide from screen recordings" hint="Keeps the bubble, panel and HUD out of OBS, Discord and screenshots.">
+        <SettingRow v-if="!linux" label="Hide from screen recordings" hint="Keeps the bubble, panel and HUD out of OBS, Discord and screenshots.">
           <Toggle :model-value="store.settings.hideFromCapture" @update:model-value="store.set('hideFromCapture', $event)" />
         </SettingRow>
       </div>
@@ -174,7 +176,7 @@ const savePython = (): Promise<void> => store.set('tracker', { ...store.settings
           <input
             v-model="python"
             class="mt-1 h-7 w-full rounded-md border border-light bg-default px-2 text-xs"
-            placeholder="C:\…\python.exe"
+            :placeholder="linux ? '/path/to/.venv/bin/python' : 'C:\\…\\python.exe'"
             @change="savePython"
           />
         </label>

@@ -1,4 +1,4 @@
-"""Server->client TCP payloads of the game flow, live through Npcap or from a saved .pcap.
+"""Server->client TCP payloads, live through libpcap/Npcap or from a saved .pcap.
 
 The game flow is found the way the DPS meters find it: the server port whose payloads keep
 carrying the stream's record terminator. A per-flow sequence check drops retransmissions.
@@ -9,11 +9,12 @@ port is the proxy's, and a reconnect gets a new one: when the locked port stops 
 terminator and another one carries it, the lock moves there.
 
 Live capture listens on every adapter that has an address at once: with a VPN or a ping reducer
-the game's traffic is only readable on the tunnel adapter, which is not Windows' default one.
+the game's traffic may only be readable on the tunnel adapter, not the default one.
 """
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -205,13 +206,47 @@ def pick_interfaces(ifaces) -> list:
             if i.is_valid() and any(not ip.startswith("169.254.") for ip in i.ips.get(4, []))]
 
 
+def _configure_capture() -> None:
+    """Use libpcap explicitly on Linux; offline replay never needs it or privileges.
+
+    Scapy otherwise defaults to native raw sockets on Linux and silently falls back to those
+    sockets if libpcap is missing. Do not let that fallback conceal a broken installation.
+    Changing use_pcap also refreshes Scapy's interface providers.
+    """
+    if sys.platform.startswith("linux"):
+        conf.use_pcap = True
+        if not conf.use_pcap:
+            raise RuntimeError(
+                "libpcap is required for live capture on Linux. Install libpcap0.8 "
+                "(Debian/Ubuntu) or libpcap (Fedora/Arch), then restart the tracker. "
+                "Paused mode and saved-pcap replay do not require capture privileges."
+            )
+
+
+def _listen(iface):
+    try:
+        # This is a passive reader of the local game's traffic; promiscuous mode is unnecessary.
+        return conf.L2listen(iface=iface, filter="tcp", promisc=False)
+    except Exception as e:
+        if sys.platform.startswith("linux") and (
+            isinstance(e, PermissionError)
+            or any(term in str(e).lower() for term in ("not permitted", "permission denied"))
+        ):
+            raise RuntimeError(
+                "Linux denied packet capture. Grant CAP_NET_RAW to the packaged tracker "
+                "helper (some interfaces also need CAP_NET_ADMIN); do not run Electron as "
+                "root. See the Linux capture setup in README.md."
+            ) from e
+        raise
+
+
 def _open(log: Callable[[str], None]) -> dict:
     """{socket: adapter name} for every adapter that opens; raises if none does."""
     chosen = pick_interfaces(conf.ifaces.values()) or [conf.iface]
     sockets, opened, failed = {}, [], []
     for iface in chosen:
         try:
-            sockets[conf.L2listen(iface=iface, filter="tcp")] = iface.name
+            sockets[_listen(iface)] = iface.name
             opened.append(f"{iface.name} ({iface.description}, {', '.join(iface.ips.get(4, []))})")
         except Exception as e:  # noqa: BLE001 -- one bad adapter must not stop the others
             failed.append(f"{iface.name}: {e}")
@@ -229,8 +264,14 @@ def live(stream: GameStream, iface: str | None = None, save_to: str | None = Non
     replay."""
     from scapy.utils import PcapWriter
 
-    sockets = {conf.L2listen(iface=iface, filter="tcp"): iface} if iface else _open(log)
-    writer = PcapWriter(save_to, append=True, sync=True) if save_to else None
+    _configure_capture()
+    sockets = {_listen(iface): iface} if iface else _open(log)
+    try:
+        writer = PcapWriter(save_to, append=True, sync=True) if save_to else None
+    except Exception:
+        for sock in sockets:
+            sock.close()
+        raise
     counts = {name: 0 for name in sockets.values()}  # TCP packets per adapter since the last report
     failures: set[str] = set()  # each kind of packet failure, logged once
 
@@ -263,8 +304,8 @@ def live(stream: GameStream, iface: str | None = None, save_to: str | None = Non
     sniffer = AsyncSniffer(opened_socket=sockets, prn=handle, store=False)
     started = next_report = time.monotonic()
     next_report += REPORT_S
-    sniffer.start()
     try:
+        sniffer.start()
         # Short waits, so Ctrl+C gets through on Windows.
         while not halt.wait(1.0):
             if not sniffer.thread.is_alive():
@@ -275,7 +316,7 @@ def live(stream: GameStream, iface: str | None = None, save_to: str | None = Non
     except KeyboardInterrupt:
         pass
     finally:
-        if sniffer.thread.is_alive():
+        if sniffer.thread is not None and sniffer.thread.is_alive():
             sniffer.stop()
         for sock in sockets:
             sock.close()

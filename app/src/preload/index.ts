@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { EVENT_CHANNELS, INVOKE_CHANNELS, type Bridge, type EventChannel, type InvokeChannel } from '../shared/ipc.ts'
 
 const bridge: Bridge = {
+  platform: process.platform,
   invoke(channel, ...args) {
     if (!INVOKE_CHANNELS.includes(channel as InvokeChannel)) throw new Error(`unknown channel ${channel}`)
     return ipcRenderer.invoke(channel, ...args)

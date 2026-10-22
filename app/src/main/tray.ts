@@ -42,8 +42,17 @@ export function createTray(): Tray {
   tray = new Tray(image)
   tray.setToolTip(DISPLAY_NAME)
   tray.on('click', () => togglePanel())
+  if (process.platform === 'linux') {
+    // AppIndicator hosts use the exported context menu instead of Electron's right-click
+    // event. Reassign it after state changes, as required by Electron's Linux Tray API.
+    const refresh = (): void => tray?.setContextMenu(menu())
+    refresh()
+    settings.onChanged(refresh)
+    // HUD edit mode may change without a persisted setting changing.
+    setInterval(refresh, 5_000).unref()
+  }
   // Rebuilt on open so the checkbox and the HUD item reflect the current state.
-  tray.on('right-click', () => tray?.popUpContextMenu(menu()))
+  if (process.platform !== 'linux') tray.on('right-click', () => tray?.popUpContextMenu(menu()))
   return tray
 }
 

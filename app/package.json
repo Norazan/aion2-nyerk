@@ -1,6 +1,7 @@
 {
   "name": "aion2-drop-tracker",
   "productName": "Nyerk",
+  "desktopName": "nyerk.desktop",
   "version": "0.2.17",
   "description": "In-game overlay for the Aion 2 drop tracker: pet souls and collection progress.",
   "private": true,
@@ -20,8 +21,10 @@
     "check": "npm run typecheck && npm test",
     "icon": "node scripts/make-icon.mjs",
     "build:sidecar": "node scripts/build-sidecar.mjs",
-    "dist": "npm run build:sidecar && npm run build && electron-builder --win --publish never",
-    "pack": "npm run build && electron-builder --win --dir"
+    "dist": "npm run dist:linux",
+    "dist:linux": "npm run icon && npm run build:sidecar && npm run build && electron-builder --linux --publish never",
+    "dist:win": "npm run icon && npm run build:sidecar && npm run build && electron-builder --win --publish never",
+    "pack": "npm run icon && npm run build:sidecar && npm run build && electron-builder --linux --dir --publish never"
   },
   "dependencies": {
     "electron-store": "^11.0.2",

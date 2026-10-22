@@ -34,6 +34,7 @@ import { settings } from './settings.ts'
 import { timers } from './timers.ts'
 import { log, tracker } from './tracker.ts'
 import { appVersion, shellVersion } from './version.ts'
+import { supportsAutomaticUpdates } from './trackerPlatform.ts'
 import { markQuitting, merchantOpen, panelTab, panelVisible, saveWindowPlaces } from './windows.ts'
 
 /** After start, once the windows are up: soon enough that an update lands before anyone settles in. */
@@ -224,7 +225,7 @@ export const updates = {
   status: (): UpdateStatus => status,
 
   async check(): Promise<void> {
-    if (!app.isPackaged) {
+    if (!supportsAutomaticUpdates(process.platform, app.isPackaged)) {
       set({ state: 'unsupported' })
       return
     }
@@ -320,7 +321,7 @@ function watchBundleStart(): void {
 /** At start: bundle housekeeping, then the launch check and the hourly ones (installed builds only). */
 export function startUpdateChecks(): void {
   set({ current: appVersion() })
-  if (!app.isPackaged) {
+  if (!supportsAutomaticUpdates(process.platform, app.isPackaged)) {
     set({ state: 'unsupported' })
     return
   }
