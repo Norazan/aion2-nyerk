@@ -91,6 +91,10 @@ Repeat steps 2 and 3 when updating Nyerk. **Do not start Nyerk with `sudo`.**
 
 - **Fedora or Arch:** install `libpcap` and the package providing `setcap` (`libcap` on both),
   instead of the Ubuntu/Debian packages above.
+- **Electron download:** packaging downloads Electron automatically. If an older checkout reports
+  that `node_modules/electron/dist` is missing, run `npx --no-install install-electron` from `app/`,
+  then try `npm run pack` again. This installs the project's Electron version; the system Electron
+  package is not needed.
 - **Overlay missing:** Nyerk needs X11 or XWayland. On a Wayland desktop, install XWayland;
   alternatively, log out and select an X11/Xorg session on the login screen. Some desktop
   compositors may still restrict overlays. Native Wayland overlay placement is not supported.

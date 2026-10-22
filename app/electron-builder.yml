@@ -23,8 +23,8 @@ extraResources:
     filter: ['**/*']
 asar: true
 electronLanguages: [en-US]
-# Reuse the binary installed (and checksum-verified) by the locked electron dependency.
-electronDist: node_modules/electron/dist
+# Let electron-builder download/cache the locked Electron version. Recent Electron npm
+# packages install their development binary lazily, so node_modules/electron/dist may be absent.
 linux:
   target: [AppImage]
   category: Game
